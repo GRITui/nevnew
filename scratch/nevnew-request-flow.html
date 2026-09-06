@@ -1,0 +1,383 @@
+<title>NevNew Request Flow</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #f4f6f8;
+    --surface: #ffffff;
+    --ink: #171a1f;
+    --muted: #5b6472;
+    --line: #dbe0e6;
+    --accent: #e11d48;      /* critical / never-happens path */
+    --accent-soft: #fde8ec;
+    --info: #0f766e;        /* grouping / informational */
+    --info-soft: #e6f4f2;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151a;
+      --surface: #1b1f26;
+      --ink: #e6e9ee;
+      --muted: #8b93a0;
+      --line: #2b3038;
+      --accent: #fb7185;
+      --accent-soft: #3a1620;
+      --info: #2dd4bf;
+      --info-soft: #123330;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151a;
+    --surface: #1b1f26;
+    --ink: #e6e9ee;
+    --muted: #8b93a0;
+    --line: #2b3038;
+    --accent: #fb7185;
+    --accent-soft: #3a1620;
+    --info: #2dd4bf;
+    --info-soft: #123330;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    padding: 48px 24px 72px;
+    display: flex;
+    justify-content: center;
+  }
+
+  main { width: 100%; max-width: 1080px; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--info);
+    margin: 0 0 10px;
+  }
+
+  h1 {
+    font-size: clamp(28px, 4vw, 38px);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0 0 12px;
+    text-wrap: balance;
+    max-width: 18ch;
+  }
+
+  .dek {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--muted);
+    max-width: 62ch;
+    margin: 0 0 36px;
+  }
+
+  .dek code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.9em;
+    background: var(--info-soft);
+    color: var(--info);
+    padding: 0.05em 0.4em;
+    border-radius: 4px;
+  }
+
+  figure {
+    margin: 0 0 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px 16px 16px;
+  }
+
+  .diagram-scroll { overflow-x: auto; }
+
+  svg { display: block; width: 100%; height: auto; min-width: 720px; color: var(--ink); }
+
+  svg text { font-family: "IBM Plex Sans", sans-serif; fill: currentColor; }
+  svg .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  svg .muted { fill: var(--muted); }
+  svg .info { fill: var(--info); }
+  svg .critical { fill: var(--accent); }
+  svg .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+  svg .flow-line { stroke: currentColor; stroke-width: 1.4; fill: none; }
+  svg .info-line { stroke: var(--info); stroke-width: 1.2; }
+  svg .critical-line { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+
+  figcaption {
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--muted);
+    padding: 2px 6px 4px;
+  }
+
+  figcaption .crit { color: var(--accent); font-weight: 600; }
+  figcaption a { color: var(--info); text-decoration: none; border-bottom: 1px solid currentColor; }
+
+  .legend {
+    margin-top: 40px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .legend-col {
+    background: var(--surface);
+    padding: 18px 20px;
+  }
+
+  .legend-col h2 {
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 12px;
+    font-weight: 600;
+  }
+
+  .legend-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+
+  .legend-col li {
+    font-size: 13.5px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px dashed var(--line);
+    padding-bottom: 9px;
+  }
+  .legend-col li:last-child { border-bottom: none; padding-bottom: 0; }
+
+  .legend-col li span:first-child { color: var(--ink); }
+  .legend-col li span:last-child {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .gap-note {
+    margin-top: 24px;
+    border: 1px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+
+  .gap-note .mark {
+    font-family: "IBM Plex Mono", monospace;
+    font-weight: 600;
+    color: var(--accent);
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+    padding-top: 1px;
+  }
+
+  .gap-note p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+
+  .gap-note a { color: var(--accent); }
+
+  @media (max-width: 760px) {
+    .legend { grid-template-columns: 1fr; }
+  }
+</style>
+
+<main>
+  <p class="eyebrow">NevNew &middot; system map</p>
+  <h1>How a message becomes a reply</h1>
+  <p class="dek">
+    Two entry points proxy through one <code>LiteLLM</code> instance with a three-model fallback chain.
+    A separate tool bridge is fully wired but never actually fires. Read left/top to right/bottom.
+  </p>
+
+  <figure>
+    <div class="diagram-scroll">
+      <svg viewBox="0 0 1080 780" role="img" aria-label="Diagram: Open-WebUI and a Telegram bot both send chat completion requests to LiteLLM, which injects the NevNew persona and tries three OpenRouter models in fallback order. A second, separate path connects an n8n MCP tool through mcpo into Open-WebUI's tool registry — this registers and verifies successfully but is never invoked when a real chat completion runs. A third path lets Claude call the offload model directly, bypassing LiteLLM and the persona entirely.">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+          <marker id="arrowCritical" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+          </marker>
+        </defs>
+
+        <!-- entry point labels -->
+        <text x="150" y="38" text-anchor="middle" font-size="13" font-weight="600">Browser</text>
+        <text x="890" y="38" text-anchor="middle" font-size="13" font-weight="600">Telegram</text>
+
+        <!-- row 1: entry services -->
+        <rect class="box" x="40" y="58" width="220" height="55" rx="8"/>
+        <text x="150" y="81" text-anchor="middle" font-size="13">Open-WebUI</text>
+        <text class="mono muted" x="150" y="99" text-anchor="middle" font-size="11">:3000</text>
+
+        <rect class="box" x="770" y="58" width="240" height="55" rx="8"/>
+        <text x="890" y="81" text-anchor="middle" font-size="13">Telegram Bot API</text>
+        <text class="mono muted" x="890" y="99" text-anchor="middle" font-size="11">@nevnew_bot</text>
+
+        <line class="flow-line" x1="150" y1="46" x2="150" y2="58" marker-end="url(#arrow)"/>
+        <line class="flow-line" x1="890" y1="46" x2="890" y2="58" marker-end="url(#arrow)"/>
+
+        <!-- row 2: n8n telegram workflow -->
+        <rect class="box" x="740" y="160" width="280" height="72" rx="8"/>
+        <text class="mono" x="880" y="181" text-anchor="middle" font-size="12">n8n :5678</text>
+        <text x="880" y="198" text-anchor="middle" font-size="12">Telegram workflow</text>
+        <text class="muted" x="880" y="214" text-anchor="middle" font-size="9.5">whitelist &#8594; history &#8594; call &#8594; reply</text>
+
+        <line class="flow-line" x1="890" y1="113" x2="881" y2="160" marker-end="url(#arrow)"/>
+        <text class="muted" x="944" y="141" text-anchor="middle" font-size="10">webhook</text>
+
+        <!-- LiteLLM + persona -->
+        <rect class="box" x="390" y="300" width="300" height="64" rx="8"/>
+        <text x="540" y="325" text-anchor="middle" font-size="13.5" font-weight="600">LiteLLM Proxy</text>
+        <text class="mono muted" x="540" y="344" text-anchor="middle" font-size="11">:4000 &middot; model=NevNew</text>
+
+        <rect class="box" x="760" y="280" width="250" height="54" rx="8"/>
+        <text class="mono" x="885" y="301" text-anchor="middle" font-size="11">nevnew_persona.py</text>
+        <text class="muted" x="885" y="317" text-anchor="middle" font-size="10">pre-call hook</text>
+
+        <line class="flow-line" x1="760" y1="307" x2="692" y2="322" marker-end="url(#arrow)"/>
+        <text class="muted" x="742" y="298" text-anchor="middle" font-size="10">prepends persona</text>
+
+        <line class="flow-line" x1="150" y1="113" x2="462" y2="300" marker-end="url(#arrow)"/>
+        <text class="muted" x="272" y="220" text-anchor="middle" font-size="10.5">chat/completions</text>
+
+        <line class="flow-line" x1="880" y1="232" x2="655" y2="300" marker-end="url(#arrow)"/>
+        <text class="muted" x="815" y="272" text-anchor="middle" font-size="10.5">chat/completions + history</text>
+
+        <!-- model pool -->
+        <line class="info-line" x1="200" y1="418" x2="200" y2="424"/>
+        <line class="info-line" x1="950" y1="418" x2="950" y2="424"/>
+        <line class="info-line" x1="200" y1="418" x2="950" y2="418"/>
+        <text class="info" x="575" y="408" text-anchor="middle" font-size="11" font-weight="600" letter-spacing="0.06em">OPENROUTER &middot; FALLBACK CHAIN</text>
+
+        <rect class="box" x="200" y="430" width="230" height="58" rx="8"/>
+        <text class="mono" x="315" y="453" text-anchor="middle" font-size="12">z-ai/glm-5.2:free</text>
+        <text class="muted" x="315" y="471" text-anchor="middle" font-size="10">primary</text>
+
+        <rect class="box" x="460" y="430" width="230" height="58" rx="8"/>
+        <text class="mono" x="575" y="453" text-anchor="middle" font-size="10.5">nemotron-3-super:free</text>
+        <text class="muted" x="575" y="471" text-anchor="middle" font-size="10">fallback 1</text>
+
+        <rect class="box" x="720" y="430" width="230" height="58" rx="8"/>
+        <text class="mono" x="835" y="453" text-anchor="middle" font-size="12">gemma-4-31b:free</text>
+        <text class="muted" x="835" y="471" text-anchor="middle" font-size="10">fallback 2</text>
+
+        <line class="flow-line" x1="540" y1="364" x2="335" y2="430" marker-end="url(#arrow)"/>
+        <text class="muted" x="410" y="405" text-anchor="middle" font-size="10">try primary</text>
+
+        <line class="flow-line" x1="430" y1="459" x2="460" y2="459" marker-end="url(#arrow)"/>
+        <text class="muted" x="445" y="450" text-anchor="middle" font-size="9.5">on 429</text>
+
+        <line class="flow-line" x1="690" y1="459" x2="720" y2="459" marker-end="url(#arrow)"/>
+        <text class="muted" x="705" y="450" text-anchor="middle" font-size="9.5">on 429</text>
+
+        <!-- offload bypass -->
+        <text class="muted" x="60" y="565" font-size="10.5" letter-spacing="0.05em" text-transform="uppercase">offload path (separate from chat)</text>
+
+        <rect class="box" x="60" y="580" width="170" height="58" rx="8"/>
+        <text x="145" y="613" text-anchor="middle" font-size="12">Claude (me)</text>
+
+        <rect class="box" x="310" y="580" width="220" height="58" rx="8"/>
+        <text class="mono" x="420" y="613" text-anchor="middle" font-size="11">offload_to_minimax.sh</text>
+
+        <rect class="box" x="610" y="580" width="230" height="58" rx="8"/>
+        <text class="muted" x="725" y="602" text-anchor="middle" font-size="10">OpenRouter</text>
+        <text class="mono" x="725" y="620" text-anchor="middle" font-size="12">minimax-m3:free</text>
+
+        <line class="flow-line" x1="230" y1="609" x2="310" y2="609" marker-end="url(#arrow)"/>
+        <text class="muted" x="270" y="601" text-anchor="middle" font-size="9.5">CLI call</text>
+
+        <line class="flow-line" x1="530" y1="609" x2="610" y2="609" marker-end="url(#arrow)"/>
+        <text class="muted" x="570" y="601" text-anchor="middle" font-size="9.5">bypasses LiteLLM</text>
+
+        <!-- tool bridge -->
+        <text class="critical" x="60" y="665" font-size="10.5" letter-spacing="0.05em" text-transform="uppercase">tool bridge (registered, never invoked &mdash; issue #1)</text>
+
+        <rect class="box" x="60" y="680" width="230" height="58" rx="8"/>
+        <text x="175" y="702" text-anchor="middle" font-size="11">n8n: MCP Server</text>
+        <text class="mono muted" x="175" y="718" text-anchor="middle" font-size="9.5">Trigger &#8594; Code_Tool</text>
+
+        <rect class="box" x="340" y="680" width="170" height="58" rx="8"/>
+        <text class="mono" x="425" y="703" text-anchor="middle" font-size="12">mcpo :8000</text>
+        <text class="muted" x="425" y="719" text-anchor="middle" font-size="9.5">MCP &#8594; OpenAPI</text>
+
+        <rect class="box" x="650" y="680" width="260" height="58" rx="8"/>
+        <text x="780" y="702" text-anchor="middle" font-size="12">Open-WebUI</text>
+        <text class="muted" x="780" y="719" text-anchor="middle" font-size="9.5">External Tool Server</text>
+
+        <line class="flow-line" x1="290" y1="709" x2="340" y2="709" marker-end="url(#arrow)"/>
+        <text class="muted" x="315" y="727" text-anchor="middle" font-size="9.5">MCP / JSON-RPC</text>
+
+        <line class="flow-line" x1="510" y1="698" x2="650" y2="698" marker-end="url(#arrow)"/>
+        <text class="muted" x="580" y="690" text-anchor="middle" font-size="9.5">spec &#10003;</text>
+
+        <line class="critical-line" x1="650" y1="722" x2="510" y2="722" stroke-dasharray="5 4" marker-end="url(#arrowCritical)"/>
+        <text class="critical" x="580" y="736" text-anchor="middle" font-size="9.5" font-weight="600">never called &#10007;</text>
+      </svg>
+    </div>
+    <figcaption>
+      Open-WebUI and the Telegram workflow both proxy through one LiteLLM instance, which injects NevNew's
+      persona and tries three genuinely-free OpenRouter models in order on failure. The tool bridge underneath
+      &mdash; n8n &#8594; mcpo &#8594; Open-WebUI &mdash; registers and verifies cleanly (solid arrow), but backend
+      logs confirm Open-WebUI <span class="crit">never actually sends a chat-time tool call</span> through it
+      (dashed arrow). Separately, Claude can call the offload model directly, skipping LiteLLM and the persona
+      entirely &mdash; useful for engineering subtasks, irrelevant to what NevNew says to a user.
+    </figcaption>
+  </figure>
+
+  <div class="legend">
+    <div class="legend-col">
+      <h2>Native on Mac Mini</h2>
+      <ul>
+        <li><span>n8n</span><span>:5678</span></li>
+      </ul>
+    </div>
+    <div class="legend-col">
+      <h2>Docker containers</h2>
+      <ul>
+        <li><span>Open-WebUI</span><span>:3000</span></li>
+        <li><span>LiteLLM proxy</span><span>:4000</span></li>
+        <li><span>mcpo</span><span>:8000</span></li>
+      </ul>
+    </div>
+    <div class="legend-col">
+      <h2>External (OpenRouter)</h2>
+      <ul>
+        <li><span>z-ai/glm-5.2</span><span>free</span></li>
+        <li><span>nemotron-3-super</span><span>free</span></li>
+        <li><span>gemma-4-31b</span><span>free</span></li>
+        <li><span>minimax-m3</span><span>free</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="gap-note">
+    <span class="mark">GAP</span>
+    <p>
+      The tool bridge is the one piece that doesn't work yet: mcpo confirms the connection, Open-WebUI shows it
+      as registered, and the per-chat tool picker even lists it as active &mdash; but no request for it ever
+      reaches mcpo's logs. Tracked as open work on
+      <a href="https://github.com/GRITui/nevnew/issues/1" target="_blank" rel="noopener">issue #1</a>.
+    </p>
+  </div>
+</main>

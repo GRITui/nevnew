@@ -1,0 +1,52 @@
+/*
+ * NevNew Open-WebUI theme override.
+ * Mounted at /app/build/static/custom.css (see docker-compose.yml), loaded
+ * on every page via the <link> Open-WebUI's index.html already references.
+ * Scoped to `.light` so the default dark theme is left untouched.
+ * Pinned against Open-WebUI v0.11.3 — re-check these selectors after any
+ * image upgrade (confirmed live via browser DOM inspection on this version):
+ *   #send-message-button, #new-chat-button, #model-selector-model-button,
+ *   the full-page background container (.bg-white.h-screen)
+ */
+
+/* --- Pink accent palette (light theme only) --- */
+.light {
+	--color-gray-50: #fff5f9;
+	--color-gray-100: #ffe9f2;
+}
+
+/* Full-page background: light pink + tiled sweet icons (cake, ice cream,
+   teddy/doll face, heart) — the only element that renders solid white
+   full-screen in light theme (confirmed via computed-style scan). */
+.light .bg-white.h-screen {
+	background-color: #ffe4f1 !important;
+	background-image: url('/static/decor-bg.svg');
+	background-repeat: repeat;
+	background-size: 220px 220px;
+}
+
+/* Send button */
+.light #send-message-button {
+	background-color: #ec4899 !important;
+	color: #fff !important;
+}
+.light #send-message-button:hover {
+	background-color: #db2777 !important;
+}
+
+/* New chat button (sidebar) */
+.light #new-chat-button:hover {
+	background-color: #fbcfe8 !important;
+	color: #9d174d !important;
+}
+
+/* Focus rings / active accents */
+.light *:focus-visible {
+	outline-color: #ec4899 !important;
+}
+
+/* --- Hide the model-selector control in the chat input bar --- */
+.light #model-selector-model-button,
+.dark #model-selector-model-button {
+	display: none !important;
+}

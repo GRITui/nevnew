@@ -1,0 +1,83 @@
+model_list:
+  # Chat model(s) for Open-WebUI users. model_name is what Open-WebUI
+  # displays above each assistant message and in the model picker, so all
+  # three deployments below share "NevNew" rather than the underlying
+  # backend name — LiteLLM's router picks among them and falls over to a
+  # healthy sibling if one is rate-limited/down.
+  #
+  # History: musespark-1.3 (Meta) -> stopped being free -> google/gemma-4-31b-it:free
+  # -> z-ai/glm-5.2:free (current primary). A single free-tier model proved
+  # fragile (429s hit on both prior models from shared-pool rate limits),
+  # so as of 2026-09-05 two more free deployments were added as fallbacks.
+  # All three verified free (pricing prompt=0/completion=0) directly against
+  # OpenRouter's models API — re-verify via
+  # `curl https://openrouter.ai/api/v1/models` if any of these ever 404s/402s.
+  #
+  # rpm limits below are self-imposed, conservative caps so NevNew doesn't
+  # hammer OpenRouter's shared free pools and trip provider-side rate
+  # limits even faster than the pool already does on its own.
+  - model_name: NevNew
+    litellm_params:
+      model: openrouter/z-ai/glm-5.2:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      rpm: 20
+    model_info:
+      id: glm-5-2-newnew
+      mode: chat
+  - model_name: NevNew
+    litellm_params:
+      model: openrouter/nvidia/nemotron-3-super-120b-a12b:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      rpm: 20
+    model_info:
+      id: nemotron-3-super-newnew
+      mode: chat
+  - model_name: NevNew
+    litellm_params:
+      model: openrouter/google/gemma-4-31b-it:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      rpm: 20
+    model_info:
+      id: gemma-4-31b-newnew
+      mode: chat
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  num_retries: 3
+  request_timeout: 60
+  # NevNew (นิวนิว) persona injection — implemented as a custom pre-call hook
+  # (see callbacks/nevnew_persona.py) since LiteLLM's config.yaml has no
+  # native "system prompt" field.
+  callbacks: ["nevnew_persona.nevnew_persona_instance"]
+
+router_settings:
+  routing_strategy: simple-shuffle
+  num_retries: 3
+  retry_policy:
+    RateLimitErrorRetries: 5
+    ConnectionErrorRetries: 3
+    TimeoutErrorRetries: 3
+    ContentPolicyViolationErrorRetries: 0
+    InternalServerErrorRetries: 3
+  allowed_fails_policy:
+    RateLimitErrorAllowedFails: 5
+    ConnectionErrorAllowedFails: 3
+    TimeoutErrorAllowedFails: 3
+    InternalServerErrorAllowedFails: 3
+  cooldown_time: 30
+  # Cooldowns were disabled (2026-09-05) back when "NevNew" had only ONE
+  # deployment — tripping a cooldown with nothing to fall back to just
+  # hard-failed every request for 30s, worse than retrying. Now that there
+  # are 3 deployments (see model_list), cooldowns do their intended job:
+  # steer traffic away from a rate-limited deployment onto a healthy
+  # sibling. Re-enabled accordingly.
+  disable_cooldowns: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: null
+  disable_spend_logs: true
