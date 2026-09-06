@@ -42,6 +42,11 @@ KNOWN_NOISE = [
     # bot already handles this gracefully (issue #11 requirement 4), so it's
     # not a bug in the bot either.
     r"LiteLLM round-trip failed: Client error '429",
+    # uvicorn/starlette's SIGTERM shutdown path always ends in an unavoidable
+    # CancelledError traceback from the lifespan's receive() — mcpo logs it
+    # on every deliberate stop (deploys, watchdog revives, `docker stop`
+    # tests). Expected/operational, not a bug (observed 2026-09-06).
+    r"Received SIGTERM, initiating graceful shutdown",
 ]
 
 # Lines that mark the start of a real error worth looking at.
