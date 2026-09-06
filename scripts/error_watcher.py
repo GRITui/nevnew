@@ -86,26 +86,34 @@ def fetch_new_logs(container: str, since_iso: str | None) -> tuple[str, str]:
     return result.stdout + result.stderr, now_iso
 
 
-def file_issue(container: str, line: str, context: str) -> None:
+def file_issue(container: str, line: str, context: str) -> int:
     title = f"[auto] {container}: {line.strip()[:100]}"
     body = (
         f"Auto-filed by `scripts/error_watcher.py` after detecting a new error "
         f"signature in `{container}`'s logs.\n\n"
         f"**Trigger line:**\n```\n{line.strip()}\n```\n\n"
         f"**Context (log excerpt):**\n```\n{context.strip()[-3000:]}\n```\n\n"
-        f"Not auto-fixed — filed for triage. If this turns out to be expected/"
-        f"operational rather than a bug, add its pattern to `KNOWN_NOISE` in "
-        f"error_watcher.py so it stops re-filing."
+        f"Not auto-fixed by this watcher — a separate autofix pipeline picks "
+        f"this up next. If this turns out to be expected/operational rather "
+        f"than a bug, add its pattern to `KNOWN_NOISE` in error_watcher.py so "
+        f"it stops re-filing."
     )
-    subprocess.run(
+    result = subprocess.run(
         ["gh", "issue", "create", "--repo", REPO, "--title", title, "--body", body, "--label", "bug"],
         check=True,
+        capture_output=True,
+        text=True,
     )
+    # gh issue create prints the new issue's URL as its only stdout line,
+    # e.g. https://github.com/GRITui/nevnew/issues/17 — the trailing path
+    # segment is the issue number the autofix step needs to act on.
+    return int(result.stdout.strip().rsplit("/", 1)[-1])
 
 
 def main() -> None:
     state = load_state()
     filed_this_run = 0
+    filed_issue_numbers: list[int] = []
 
     for container in CONTAINERS:
         since = state["since"].get(container)
@@ -132,15 +140,21 @@ def main() -> None:
                 continue
 
             context = "\n".join(lines[max(0, i - 5) : i + 15])
-            file_issue(container, line, context)
+            issue_number = file_issue(container, line, context)
             state["filed_signatures"][sig] = {
                 "first_seen": now_iso,
                 "line": line.strip()[:200],
             }
             filed_this_run += 1
+            filed_issue_numbers.append(issue_number)
 
     save_state(state)
     print(f"error_watcher: filed {filed_this_run} new issue(s)")
+    # Machine-readable line for the calling n8n workflow to react to which
+    # issues just got filed (so it can dispatch the autofix step per-issue)
+    # — kept separate from the human-readable line above rather than
+    # replacing it, since the crontab log is also read by humans.
+    print(json.dumps({"filed_issue_numbers": filed_issue_numbers}))
 
 
 if __name__ == "__main__":
