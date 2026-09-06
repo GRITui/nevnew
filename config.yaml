@@ -43,6 +43,24 @@ model_list:
     model_info:
       id: gemma-4-31b-newnew
       mode: chat
+  # Added 2026-09-06 to close the gap discovered 2026-09-05 (issue #7 comment):
+  # the three deployments above all share ONE OpenRouter account, so
+  # OpenRouter's account-wide 50 req/day free-tier cap takes all three down
+  # together — the multi-model fallback above only helps against a
+  # per-model throttle, not this. OpenCode Zen is a genuinely separate
+  # quota pool (different account/product entirely), reached as a plain
+  # OpenAI-compatible endpoint (confirmed live: `curl
+  # https://opencode.ai/zen/v1/models`), so it keeps answering even when
+  # all three OpenRouter deployments are 429ing from the shared daily cap.
+  - model_name: NevNew
+    litellm_params:
+      model: openai/nemotron-3-ultra-free
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/OPENCODE_ZEN_API_KEY
+      rpm: 20
+    model_info:
+      id: nemotron-3-ultra-zen-newnew
+      mode: chat
 
 litellm_settings:
   drop_params: true

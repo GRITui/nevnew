@@ -9,6 +9,7 @@ services:
       - .env
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENCODE_ZEN_API_KEY=${OPENCODE_ZEN_API_KEY}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
     volumes:
       - ./config.yaml:/app/config.yaml:ro
