@@ -78,7 +78,7 @@ source "$PROJECT_ROOT/.env"
 set +a
 
 if [ -z "${OPENROUTER_API_KEY:-}" ] || [ "$OPENROUTER_API_KEY" = "your-openrouter-api-key-here" ]; then
-  echo "ERROR: OPENROUTER_API_KEY is not set in .env. Both gemma-4-31b (chat)"
+  echo "ERROR: OPENROUTER_API_KEY is not set in .env. Both qwen3.8-max (chat)"
   echo "       and offload_to_minimax.sh (engineering offload) need it." >&2
   exit 1
 fi

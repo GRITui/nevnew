@@ -1,4 +1,26 @@
 services:
+  # PostgreSQL — required by LiteLLM's budget/spend tracking (newer litellm
+  # builds reject sqlite DATABASE_URL outright; budget caps + alert webhooks
+  # (issue #40) need a real database anyway).
+  postgres:
+    image: postgres:16-alpine
+    container_name: newnew-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=litellm
+      - POSTGRES_PASSWORD=litellm
+      - POSTGRES_DB=litellm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - newnew-net
+
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
     container_name: newnew-litellm
@@ -9,17 +31,18 @@ services:
       - .env
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - OPENCODE_ZEN_API_KEY=${OPENCODE_ZEN_API_KEY}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - DATABASE_URL=postgresql://litellm:litellm@postgres:5432/litellm
     volumes:
       - ./config.yaml:/app/config.yaml:ro
-      # Flattened next to config.yaml so LiteLLM's custom-callback import
-      # ("nevnew_persona.nevnew_persona_instance") resolves without a package path.
+      - litellm_data:/app/data
       - ./callbacks/nevnew_persona.py:/app/nevnew_persona.py:ro
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
     command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
-      # The litellm image has neither wget nor curl, so use Python (always present).
       test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=5).status == 200 else 1)"]
       interval: 30s
       timeout: 10s
@@ -28,12 +51,35 @@ services:
     networks:
       - newnew-net
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: newnew-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    networks:
+      - newnew-net
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: newnew-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=n8n.local
+      - WEBHOOK_URL=http://localhost:5678/
+      - VUE_APP_SERVER_PORT=5678
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows
+    networks:
+      - newnew-net
+
   mcpo:
-    # MCP-to-OpenAPI bridge (see BACKLOG.md / issue #1): Open-WebUI's
-    # External Tool Servers only speaks OpenAPI, but n8n's MCP Server
-    # Trigger only speaks raw MCP (JSON-RPC over SSE/streamable-http) —
-    # confirmed empirically, no native MCP client in Open-WebUI v0.11.3.
-    # mcpo sits in between and translates.
     image: ghcr.io/open-webui/mcpo:main
     container_name: newnew-mcpo
     restart: unless-stopped
@@ -43,13 +89,6 @@ services:
       - .env
     environment:
       - MCPO_API_KEY=${MCPO_API_KEY}
-    # n8n runs natively on the host (not in this compose stack), so it's
-    # reached via Docker Desktop's host.docker.internal, not "localhost"
-    # (which inside this container would mean itself).
-    #
-    # URL below points at the "NevNew MCP Spike (issue #6)" n8n workflow's
-    # production MCP endpoint — swap in real tool workflows' URLs once they
-    # exist; this is proof-of-concept wiring, not a real tool yet.
     command:
       [
         "--port", "8000",
@@ -68,16 +107,12 @@ services:
       - newnew-net
 
   open-webui:
-    # Pinned (was :main) — custom.css below depends on this version's
-    # internal class names, so a floating tag could silently break the theme
-    # on a future `docker compose pull`.
     image: ghcr.io/open-webui/open-webui:v0.11.3
     container_name: newnew-open-webui
     restart: unless-stopped
     ports:
       - "3000:8080"
     environment:
-      # Docker-network hostname resolution: reach LiteLLM by service name, not localhost.
       - OPENAI_API_BASE_URL=http://litellm:4000/v1
       - OPENAI_API_KEY=${LITELLM_MASTER_KEY}
       - WEBUI_NAME=นิวนิว
@@ -85,10 +120,6 @@ services:
       - ENABLE_OLLAMA_API=false
     volumes:
       - newnew_open_webui_data:/app/backend/data
-      # Officially-referenced override hook (index.html always links
-      # /static/custom.css) — used here for the pink/light theme reskin and
-      # hiding the model-selector dropdown, since neither has a supported
-      # env var or admin-panel toggle.
       - ./open-webui/custom.css:/app/build/static/custom.css:ro
       - ./open-webui/decor-bg.svg:/app/build/static/decor-bg.svg:ro
     depends_on:
@@ -98,10 +129,6 @@ services:
       - newnew-net
 
   telegram-bot:
-    # NevNew's MVP mobile/push channel (issue #11): polls Telegram, forwards
-    # to LiteLLM (model=NevNew), replies. Persona comes from LiteLLM's own
-    # callback — this service doesn't duplicate it. Owner-only whitelist and
-    # per-user history live in telegram-bot/bot.py.
     build: ./telegram-bot
     container_name: newnew-telegram-bot
     restart: unless-stopped
@@ -114,19 +141,21 @@ services:
       - LITELLM_BASE_URL=http://litellm:4000/v1
       - CLINE_CONFIG_DIR=/cline-home
     volumes:
-      # Reuses the persona system prompt for the cline fallback path (see
-      # bot.py) without duplicating it — same file the litellm container
-      # imports via callbacks/nevnew_persona.py.
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
-      # Host's already-authenticated Cline account (separate OpenRouter-free
-      # quota pool) — read-write because the cline CLI writes session/lock
-      # state under here. Mounted read-write, not exposed on a port; only
-      # this container process (root, same as everything else in this
-      # compose file) can reach it.
       - ${HOME}/.cline:/cline-home
     depends_on:
       litellm:
         condition: service_healthy
+    networks:
+      - newnew-net
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: newnew-cloudflared
+    restart: unless-stopped
+    command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    env_file:
+      - .env
     networks:
       - newnew-net
 
@@ -137,3 +166,11 @@ networks:
 volumes:
   newnew_open_webui_data:
     name: newnew_open_webui_data
+  litellm_data:
+    name: litellm_data
+  postgres_data:
+    name: postgres_data
+  qdrant_storage:
+    name: qdrant_storage
+  n8n_data:
+    name: n8n_data
