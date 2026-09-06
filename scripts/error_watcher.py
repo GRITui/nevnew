@@ -17,10 +17,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+
+# cron/launchd give a minimal PATH (docker lives in /usr/local/bin). Without
+# this the script dies on the first `docker logs` call *before* it can save
+# its log cursor, so the next run rescans old logs and re-files old errors
+# (observed 2026-09-06). Also note: gh auth uses file storage on this host
+# (~/.config/gh/hosts.yml), because cron cannot unlock the macOS keychain.
+os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin:/usr/bin:/bin"
 
 REPO = "GRITui/nevnew"
 CONTAINERS = ["newnew-litellm", "newnew-telegram-bot", "newnew-mcpo", "newnew-open-webui"]
