@@ -1,0 +1,343 @@
+{
+  "name": "NevNew macOS + GitHub Tools (issues #2, #5)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "b7e2d1a4-9c3f-4e8a-a6d2-5f1b0c7e9d21"
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpTrigger",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b1c2d3e4-0001-4a5b-8c6d-000000000001",
+      "name": "MCP Server Trigger",
+      "webhookId": "b7e2d1a4-9c3f-4e8a-a6d2-5f1b0c7e9d21"
+    },
+    {
+      "parameters": {
+        "description": "List the owner's macOS Reminders due within the next 7 days (overdue included). Takes no input.",
+        "jsCode": "// NevNew macOS tool: list_reminders (issue #2)\n// Runs one subcommand of n8n/macos_tools.applescript on the host.\nconst { execFile } = require('child_process');\n\nconst SCRIPT = '/Users/grit/nevnew/n8n/macos_tools.applescript';\nconst SUBCOMMAND = \"list_reminders\";\nconst ARGS = []; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    // AppleScript router treats \"-\" as \"no value\" for optional slots.\n    if (v === '') v = '-';\n    argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/usr/bin/osascript',\n      [SCRIPT, ...argv],\n      { timeout: 25000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out);\n        if (err) return resolve('ERROR: ' + (err.message || 'osascript failed').slice(0, 500));\n        resolve('OK (no output)');\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        208
+      ],
+      "id": "b1c2d3e4-0002-4a5b-8c6d-000000000000",
+      "name": "List Reminders (next 7 days)"
+    },
+    {
+      "parameters": {
+        "description": "Create a reminder in the owner's macOS Reminders. due_date is 'YYYY-MM-DD HH:MM' (24h, local time), or '-' for none.",
+        "jsCode": "// NevNew macOS tool: create_reminder (issue #2)\n// Runs one subcommand of n8n/macos_tools.applescript on the host.\nconst { execFile } = require('child_process');\n\nconst SCRIPT = '/Users/grit/nevnew/n8n/macos_tools.applescript';\nconst SUBCOMMAND = \"create_reminder\";\nconst ARGS = [[\"due_date\", \"string\", \"Due date 'YYYY-MM-DD HH:MM' or '-' for none\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    // AppleScript router treats \"-\" as \"no value\" for optional slots.\n    if (v === '') v = '-';\n    argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/usr/bin/osascript',\n      [SCRIPT, ...argv],\n      { timeout: 25000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out);\n        if (err) return resolve('ERROR: ' + (err.message || 'osascript failed').slice(0, 500));\n        resolve('OK (no output)');\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        380
+      ],
+      "id": "b1c2d3e4-0002-4a5b-8c6d-000000000001",
+      "name": "Create Reminder"
+    },
+    {
+      "parameters": {
+        "description": "Create a macOS Calendar event in the first writable calendar. Times are 'YYYY-MM-DD HH:MM' (24h, local); end after start.",
+        "jsCode": "// NevNew macOS tool: create_event (issue #2)\n// Runs one subcommand of n8n/macos_tools.applescript on the host.\nconst { execFile } = require('child_process');\n\nconst SCRIPT = '/Users/grit/nevnew/n8n/macos_tools.applescript';\nconst SUBCOMMAND = \"create_event\";\nconst ARGS = [[\"start_time\", \"string\", \"Start 'YYYY-MM-DD HH:MM'\"], [\"end_time\", \"string\", \"End 'YYYY-MM-DD HH:MM' (after start)\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    // AppleScript router treats \"-\" as \"no value\" for optional slots.\n    if (v === '') v = '-';\n    argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/usr/bin/osascript',\n      [SCRIPT, ...argv],\n      { timeout: 25000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out);\n        if (err) return resolve('ERROR: ' + (err.message || 'osascript failed').slice(0, 500));\n        resolve('OK (no output)');\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        552
+      ],
+      "id": "b1c2d3e4-0002-4a5b-8c6d-000000000002",
+      "name": "Create Calendar Event"
+    },
+    {
+      "parameters": {
+        "description": "List macOS Calendar events on one day. day is 'YYYY-MM-DD'.",
+        "jsCode": "// NevNew macOS tool: list_events (issue #2)\n// Runs one subcommand of n8n/macos_tools.applescript on the host.\nconst { execFile } = require('child_process');\n\nconst SCRIPT = '/Users/grit/nevnew/n8n/macos_tools.applescript';\nconst SUBCOMMAND = \"list_events\";\nconst ARGS = [[\"day\", \"string\", \"Day to list, 'YYYY-MM-DD'\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    // AppleScript router treats \"-\" as \"no value\" for optional slots.\n    if (v === '') v = '-';\n    argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/usr/bin/osascript',\n      [SCRIPT, ...argv],\n      { timeout: 25000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out);\n        if (err) return resolve('ERROR: ' + (err.message || 'osascript failed').slice(0, 500));\n        resolve('OK (no output)');\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        724
+      ],
+      "id": "b1c2d3e4-0002-4a5b-8c6d-000000000003",
+      "name": "List Calendar Events"
+    },
+    {
+      "parameters": {
+        "description": "Append a paragraph to a macOS Notes note, creating it if missing. note_body is plain text ('-' for none).",
+        "jsCode": "// NevNew macOS tool: append_note (issue #2)\n// Runs one subcommand of n8n/macos_tools.applescript on the host.\nconst { execFile } = require('child_process');\n\nconst SCRIPT = '/Users/grit/nevnew/n8n/macos_tools.applescript';\nconst SUBCOMMAND = \"append_note\";\nconst ARGS = [[\"note_body\", \"string\", \"Text to append, or '-' for none\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    // AppleScript router treats \"-\" as \"no value\" for optional slots.\n    if (v === '') v = '-';\n    argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/usr/bin/osascript',\n      [SCRIPT, ...argv],\n      { timeout: 25000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out);\n        if (err) return resolve('ERROR: ' + (err.message || 'osascript failed').slice(0, 500));\n        resolve('OK (no output)');\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        896
+      ],
+      "id": "b1c2d3e4-0002-4a5b-8c6d-000000000004",
+      "name": "Append to Note"
+    },
+    {
+      "parameters": {
+        "description": "List issues in GRITui/nevnew. state is open/closed/all, limit max 30.",
+        "jsCode": "// NevNew GitHub tool: gh_issues_list (issue #5)\n// Calls scripts/gh_tool.sh (strict allowlist wrapper around `gh`).\nconst { execFile } = require('child_process');\n\nconst GH_TOOL = '/Users/grit/nevnew/scripts/gh_tool.sh';\nconst SUBCOMMAND = \"gh_issues_list\";\nconst ARGS = [[\"state\", \"string\", \"open, closed, or all (default open)\"], [\"limit\", \"string\", \"Max results, 1-30 (default 10)\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    if (v !== '') argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/bin/bash',\n      [GH_TOOL, ...argv],\n      { timeout: 28000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout, stderr) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out.slice(0, 12000));\n        const errText = String(stderr || err && err.message || '').trim();\n        resolve('ERROR: ' + (errText || 'gh_tool.sh produced no output').slice(0, 800));\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        1068
+      ],
+      "id": "b1c2d3e4-0003-4a5b-8c6d-000000000000",
+      "name": "List GitHub Issues"
+    },
+    {
+      "parameters": {
+        "description": "View one issue in GRITui/nevnew by number.",
+        "jsCode": "// NevNew GitHub tool: gh_issue_view (issue #5)\n// Calls scripts/gh_tool.sh (strict allowlist wrapper around `gh`).\nconst { execFile } = require('child_process');\n\nconst GH_TOOL = '/Users/grit/nevnew/scripts/gh_tool.sh';\nconst SUBCOMMAND = \"gh_issue_view\";\nconst ARGS = [[\"issue_number\", \"string\", \"Issue number, digits only\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    if (v !== '') argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/bin/bash',\n      [GH_TOOL, ...argv],\n      { timeout: 28000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout, stderr) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out.slice(0, 12000));\n        const errText = String(stderr || err && err.message || '').trim();\n        resolve('ERROR: ' + (errText || 'gh_tool.sh produced no output').slice(0, 800));\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        1240
+      ],
+      "id": "b1c2d3e4-0003-4a5b-8c6d-000000000001",
+      "name": "View GitHub Issue"
+    },
+    {
+      "parameters": {
+        "description": "Create an issue in GRITui/nevnew. issue_body is required ('-' for empty).",
+        "jsCode": "// NevNew GitHub tool: gh_issue_create (issue #5)\n// Calls scripts/gh_tool.sh (strict allowlist wrapper around `gh`).\nconst { execFile } = require('child_process');\n\nconst GH_TOOL = '/Users/grit/nevnew/scripts/gh_tool.sh';\nconst SUBCOMMAND = \"gh_issue_create\";\nconst ARGS = [[\"issue_title\", \"string\", \"Issue title\"], [\"issue_body\", \"string\", \"Issue body ('-' for empty)\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    if (v !== '') argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/bin/bash',\n      [GH_TOOL, ...argv],\n      { timeout: 28000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout, stderr) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out.slice(0, 12000));\n        const errText = String(stderr || err && err.message || '').trim();\n        resolve('ERROR: ' + (errText || 'gh_tool.sh produced no output').slice(0, 800));\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        1412
+      ],
+      "id": "b1c2d3e4-0003-4a5b-8c6d-000000000002",
+      "name": "Create GitHub Issue"
+    },
+    {
+      "parameters": {
+        "description": "Add a comment to an issue in GRITui/nevnew.",
+        "jsCode": "// NevNew GitHub tool: gh_issue_comment (issue #5)\n// Calls scripts/gh_tool.sh (strict allowlist wrapper around `gh`).\nconst { execFile } = require('child_process');\n\nconst GH_TOOL = '/Users/grit/nevnew/scripts/gh_tool.sh';\nconst SUBCOMMAND = \"gh_issue_comment\";\nconst ARGS = [[\"issue_number\", \"string\", \"Issue number, digits only\"], [\"comment_body\", \"string\", \"Comment text\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    if (v !== '') argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/bin/bash',\n      [GH_TOOL, ...argv],\n      { timeout: 28000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout, stderr) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out.slice(0, 12000));\n        const errText = String(stderr || err && err.message || '').trim();\n        resolve('ERROR: ' + (errText || 'gh_tool.sh produced no output').slice(0, 800));\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        1584
+      ],
+      "id": "b1c2d3e4-0003-4a5b-8c6d-000000000003",
+      "name": "Comment on GitHub Issue"
+    },
+    {
+      "parameters": {
+        "description": "List pull requests in GRITui/nevnew. state is open/closed/merged, limit max 20.",
+        "jsCode": "// NevNew GitHub tool: gh_pr_list (issue #5)\n// Calls scripts/gh_tool.sh (strict allowlist wrapper around `gh`).\nconst { execFile } = require('child_process');\n\nconst GH_TOOL = '/Users/grit/nevnew/scripts/gh_tool.sh';\nconst SUBCOMMAND = \"gh_pr_list\";\nconst ARGS = [[\"state\", \"string\", \"open, closed, or merged (default open)\"], [\"limit\", \"string\", \"Max results, 1-20 (default 10)\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    if (v !== '') argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/bin/bash',\n      [GH_TOOL, ...argv],\n      { timeout: 28000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout, stderr) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out.slice(0, 12000));\n        const errText = String(stderr || err && err.message || '').trim();\n        resolve('ERROR: ' + (errText || 'gh_tool.sh produced no output').slice(0, 800));\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        1756
+      ],
+      "id": "b1c2d3e4-0003-4a5b-8c6d-000000000004",
+      "name": "List GitHub Pull Requests"
+    },
+    {
+      "parameters": {
+        "description": "View one pull request in GRITui/nevnew by number.",
+        "jsCode": "// NevNew GitHub tool: gh_pr_view (issue #5)\n// Calls scripts/gh_tool.sh (strict allowlist wrapper around `gh`).\nconst { execFile } = require('child_process');\n\nconst GH_TOOL = '/Users/grit/nevnew/scripts/gh_tool.sh';\nconst SUBCOMMAND = \"gh_pr_view\";\nconst ARGS = [[\"pr_number\", \"string\", \"PR number, digits only\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    if (v !== '') argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/bin/bash',\n      [GH_TOOL, ...argv],\n      { timeout: 28000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout, stderr) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out.slice(0, 12000));\n        const errText = String(stderr || err && err.message || '').trim();\n        resolve('ERROR: ' + (errText || 'gh_tool.sh produced no output').slice(0, 800));\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        1928
+      ],
+      "id": "b1c2d3e4-0003-4a5b-8c6d-000000000005",
+      "name": "View GitHub Pull Request"
+    },
+    {
+      "parameters": {
+        "description": "Get the diff of one pull request in GRITui/nevnew.",
+        "jsCode": "// NevNew GitHub tool: gh_pr_diff (issue #5)\n// Calls scripts/gh_tool.sh (strict allowlist wrapper around `gh`).\nconst { execFile } = require('child_process');\n\nconst GH_TOOL = '/Users/grit/nevnew/scripts/gh_tool.sh';\nconst SUBCOMMAND = \"gh_pr_diff\";\nconst ARGS = [[\"pr_number\", \"string\", \"PR number, digits only\"]]; // [ [slotName, type, description], ... ]\n\nmodule.exports = async function () {\n  const argv = [SUBCOMMAND];\n  for (const [name, type, desc] of ARGS) {\n    let v = '';\n    try {\n      v = $fromAI(name, desc, type);\n    } catch (e) {\n      v = '';\n    }\n    v = v === undefined || v === null ? '' : String(v).trim();\n    if (v !== '') argv.push(v);\n  }\n  return await new Promise((resolve) => {\n    execFile(\n      '/bin/bash',\n      [GH_TOOL, ...argv],\n      { timeout: 28000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout, stderr) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out.slice(0, 12000));\n        const errText = String(stderr || err && err.message || '').trim();\n        resolve('ERROR: ' + (errText || 'gh_tool.sh produced no output').slice(0, 800));\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        2100
+      ],
+      "id": "b1c2d3e4-0003-4a5b-8c6d-000000000006",
+      "name": "GitHub PR Diff"
+    }
+  ],
+  "connections": {
+    "List Reminders (next 7 days)": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Reminder": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Calendar Event": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Calendar Events": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Note": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List GitHub Issues": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "View GitHub Issue": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create GitHub Issue": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comment on GitHub Issue": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List GitHub Pull Requests": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "View GitHub Pull Request": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub PR Diff": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "versionMetadata": {
+    "name": "Version 1",
+    "description": "Real tools for NevNew: macOS Reminders/Calendar/Notes via osascript, plus read/triage GitHub tools via gh. Called by NevNew through mcpo."
+  }
+}
