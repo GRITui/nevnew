@@ -26,3 +26,12 @@ pattern validated by #1).
 
 No cloud auth for the macOS tools — zero new secrets. The GitHub tools reuse
 whatever `gh` auth already exists on the host running n8n.
+
+## Known limitation
+
+`append_note`'s HTML-escaping (`&`/`<`/`>`) correctly blocks arbitrary markup
+injection into note bodies, but Notes.app's own body-property re-serialization
+strips the trailing `;` off entities on write (e.g. `&amp;` round-trips as
+`&amp`, `"` becomes a bare `&quot`) — a macOS Notes quirk, not a bug in this
+script. Cosmetic only: text containing `&`, `<`, `>`, or `"` will show mangled
+entity codes in the note, but nothing executes as markup.
