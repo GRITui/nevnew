@@ -179,9 +179,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             data = response.json()
         reply_text = data["choices"][0]["message"]["content"]
     except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 429:
+        # Fall back to cline on any upstream/LiteLLM failure that's likely
+        # transient or quota-driven — 429 (rate limit, #11), 402 (credits,
+        # #41/#42/#43), and 5xx (upstream overload, #33/#34). 4xx other than
+        # 402/429 (e.g. 401/403) are auth errors and shouldn't waste a
+        # cline call.
+        if exc.response.status_code in (402, 429, 500, 502, 503, 504):
             logger.warning(
-                "LiteLLM rate-limited (429) — falling back to cline for user_id=%s", user.id
+                "LiteLLM returned %d — falling back to cline for user_id=%s",
+                exc.response.status_code, user.id,
             )
             raw_text, had_tool_calls = await _run_cline(update.message.text)
             fallback_text = _gate_cline_reply(raw_text, had_tool_calls)

@@ -55,6 +55,13 @@ KNOWN_NOISE = [
     # on every deliberate stop (deploys, watchdog revives, `docker stop`
     # tests). Expected/operational, not a bug (observed 2026-09-06).
     r"Received SIGTERM, initiating graceful shutdown",
+    # mcpo's asyncio shutdown noise ("an error occurred during closing of")
+    # — same root cause as the SIGTERM line above: the underlying httpx
+    # aclose races with the event loop teardown. Observed on every mcpo
+    # restart since 2026-09-06; the service comes up healthy every time
+    # (see healthcheck in docker-compose.yml). Issue #28/#31 are duplicates
+    # of this — adding the pattern here so the watcher stops re-filing.
+    r"an error occurred during closing of",
 ]
 
 # Lines that mark the start of a real error worth looking at.

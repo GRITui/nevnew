@@ -1,30 +1,60 @@
 model_list:
-  # NevNew's chat models. model_name is what Open-WebUI displays above each
-  # assistant message and in the model picker — the underlying backend is
-  # qwen3.8-max via OpenRouter (2026-09-06 swap, replacing gemini-3.5-* whose
-  # API key was never provisioned — see issues #29/#30/#33/#34).
+  # NevNew's chat model chain. model_name is what Open-WebUI displays above
+  # each assistant message and in the model picker. Multiple deployments
+  # under the same model_name become a fallback chain (the 2nd is tried
+  # when the 1st 4xx/5xx's, etc.) — this is what fixes the "Available Model
+  # Group Fallbacks=None" root cause behind issues #33/#34/#35.
   #
-  # "Medium reasoning": qwen3.8-max-0902 supports the reasoning_effort
-  # parameter on OpenRouter (verified in its supported_parameters) and
-  # LiteLLM maps reasoning_effort -> OpenRouter `reasoning.effort`.
-  #
-  # Pricing is NOT free: $2/M prompt, $6/M completion (OpenRouter, verified
-  # 2026-09-06 against the models API). The litellm_settings max_budget /
-  # budget_duration below ($15 per 30d) is the hard spend cap.
-  #
-  # rpm limits are self-imposed conservative caps to keep spend predictable.
+  # Primary (free, current): minimax/minimax-m3:free on OpenRouter, routed
+  # through GMICloud — a quota pool independent of the paid models below.
+  # Replaces qwen3.8-max as primary (2026-09-06) because that model is paid
+  # and our account can only afford 1120 tokens (issue #41/#42/#43). Verified
+  # live against the OpenRouter API on 2026-09-07: returns clean $0 replies
+  # in ~1.5s on a single-message prompt.
   - model_name: NevNew
     litellm_params:
-      model: openrouter/qwen/qwen3.8-max-0902
+      model: openrouter/minimax/minimax-m3:free
       api_base: https://openrouter.ai/api/v1
       api_key: os.environ/OPENROUTER_API_KEY
       reasoning_effort: medium
+      max_tokens: 8192  # explicit cap — see budget rationale in commit msg
       rpm: 30
     model_info:
-      id: qwen3-8-max
+      id: minimax-m3-free
       mode: chat
-  # NevNew-Pro: same backend, kept as a distinct alias for clients that
-  # reference it — allows a higher output ceiling for longer tasks.
+  # Fallback 1 (free, different provider on OpenRouter): nemotron-3-ultra
+  # free tier, used when minimax-m3 is 429ing from its own provider pool
+  # (same root cause as issues #25/#26/#29/#30 but for the new chain).
+  - model_name: NevNew
+    litellm_params:
+      model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      max_tokens: 8192
+      rpm: 20
+    model_info:
+      id: nemotron-3-ultra-free
+      mode: chat
+  # Fallback 2 (free, different provider again): gemma-4-31b free tier.
+  # Verified available on 2026-09-07; may 429 on shared upstream pool, in
+  # which case the next deployment or the cline fallback in
+  # telegram-bot/bot.py takes over.
+  - model_name: NevNew
+    litellm_params:
+      model: openrouter/google/gemma-4-31b-it:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      max_tokens: 8192
+      rpm: 20
+    model_info:
+      id: gemma-4-31b-free
+      mode: chat
+
+  # NevNew-Pro: paid, kept as a distinct alias for clients that reference
+  # it and for when OpenRouter credits are topped up. The 16384 max_tokens
+  # cap here is critical: without it, LiteLLM forwards the full context
+  # window and OpenRouter 402s with "requested 65536 tokens but can only
+  # afford 1120" (root cause of #41/#42/#43).
   - model_name: NevNew-Pro
     litellm_params:
       model: openrouter/qwen/qwen3.8-max-0902
@@ -43,7 +73,7 @@ litellm_settings:
   set_verbose: false
   num_retries: 3
   request_timeout: 60
-  max_budget: 15.0  # $15/month hard budget cap
+  max_budget: 15.0  # $15/month hard budget cap (only NevNew-Pro can hit it)
   budget_duration: "30d"
   callbacks: ["nevnew_persona.nevnew_persona_instance"]
 
@@ -57,6 +87,11 @@ router_settings:
     InternalServerErrorRetries: 3
   cooldown_time: 30
   disable_cooldowns: false
+  # Fallback across deployments within the same model_name group on any
+  # retriable error (429/5xx/connection). This is what was missing in the
+  # previous single-deployment config (root cause of #33/#34/#35 showing
+  # "Available Model Group Fallbacks=None").
+  enable_pre_call_checks: true
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
