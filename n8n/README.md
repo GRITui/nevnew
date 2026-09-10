@@ -35,3 +35,22 @@ strips the trailing `;` off entities on write (e.g. `&amp;` round-trips as
 `&amp`, `"` becomes a bare `&quot`) — a macOS Notes quirk, not a bug in this
 script. Cosmetic only: text containing `&`, `<`, `>`, or `"` will show mangled
 entity codes in the note, but nothing executes as markup.
+
+## O2O Copilot Middleware (sales dashboard + Telegram)
+
+`workflows/o2o-copilot-middleware.json` — a generic copilot endpoint backed by LiteLLM.
+
+Pipeline: Webhook (POST `/webhook/o2o-copilot`, CORS `*`, responds via Respond-to-Webhook) → "Build Messages" Code node (system prompt enforcing a STRICT JSON answer `{"reply": string, "viewSettings": object}`; `viewSettings` keys allow-listed to `channel`, `ops`, `from`, `to`, `trendGranularity`, `showLabels`) → HTTP Request to `http://litellm:4000/v1/chat/completions` with model `NevNew`, temperature 0.2, max_tokens 1024, `Authorization: Bearer {{ $env.LITELLM_MASTER_KEY }}` → "Parse Reply" Code node (strips code fences, JSON-parses, drops unknown viewSettings keys, falls back to a friendly error reply) → Respond to Webhook.
+
+Request body: `{schemaVersion, source, prompt, viewSettings, dataContext, allowedOps}`. Response: `{reply, viewSettings}`. Consumers: the O2O sales dashboard's "Apply with Copilot" box and the Telegram bot `@thkrit_cfg_bot`.
+
+Manual steps:
+1. `docker compose up -d n8n` — the compose file now passes `LITELLM_MASTER_KEY` through to the n8n container (needed by the HTTP node's Authorization header). If your n8n blocks env access in nodes (`N8N_BLOCK_ENV_ACCESS_IN_NODE=true`), create a Header Auth credential with the master key and attach it to the "LiteLLM Chat" node instead.
+2. In the n8n UI: Import from File → `workflows/o2o-copilot-middleware.json`, then activate it.
+3. Smoke test:
+```sh
+curl -s http://localhost:5678/webhook/o2o-copilot \
+  -H 'Content-Type: application/json' \
+  -d '{"schemaVersion":1,"source":"test","prompt":"Say OK","viewSettings":{},"dataContext":"Demo context","allowedOps":[]}'
+```
+Expect `{"reply":"...","viewSettings":{}}`.

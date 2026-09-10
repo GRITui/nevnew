@@ -1,0 +1,38 @@
+# ai-core/env-snippet.txt — issue #39 (FastAPI AI Core Harness)
+#
+# ORCHESTRATOR: append these to the repo root .env (the compose snippet
+# interpolates them). Never commit .env (already gitignored).
+#
+# Bearer auth for the AI Core API (used by the Telegram bot / n8n / ops
+# requests). Generate with:  openssl rand -hex 24
+AICORE_API_KEY=change-me-generate-with-openssl-rand-hex-24
+
+# NOTE: MEMORY_API_KEY (shared with the memory service, see
+# memory/env-snippet.txt) must also be present in .env — both services must
+# agree on it. LITELLM_MASTER_KEY and MCPO_API_KEY already exist.
+
+# ---------------------------------------------------------------------------
+# Optional overrides for AI Core (defaults shown — only uncomment to change).
+# Full list with explanations: ai-core/README.md.
+# ---------------------------------------------------------------------------
+# LiteLLM proxy / model alias.
+# LITELLM_BASE_URL=http://litellm:4000/v1
+# NEVNEW_MODEL_NAME=NevNew
+# Memory service.
+# MEMORY_BASE_URL=http://memory:8000
+# Tool loop / safety caps.
+# AICORE_MAX_TOOL_ITERATIONS=6      # hard ceiling is 12
+# AICORE_LITELLM_RETRIES=2
+# AICORE_LITELLM_TIMEOUT_SECONDS=120
+# Retrieval sizing.
+# AICORE_MEMORY_TOP_K=5
+# AICORE_HISTORY_MAX_MESSAGES=40
+# Context guards (chars).
+# AICORE_MAX_MESSAGE_CHARS=32000
+# AICORE_TOOL_RESULT_MAX_CHARS=8000
+# mcpo tool discovery.
+# MCPO_BASE_URL=http://mcpo:8000   # set empty to disable mcpo tools
+# MCPO_REFRESH_SECONDS=300         # 0 disables periodic refresh
+# AICORE_MCPO_MAX_TOOLS=50
+# Misc.
+# AICORE_TIMEZONE=Asia/Bangkok

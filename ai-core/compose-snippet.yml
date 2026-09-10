@@ -1,0 +1,56 @@
+# ai-core/compose-snippet.yml — issue #39 (FastAPI AI Core Harness).
+#
+# ORCHESTRATOR: merge the `ai-core` service into docker-compose.yml's
+# `services:` block. It joins the existing `newnew-net` network and depends
+# on the `litellm` and `memory` services (the memory service comes from
+# memory/compose-snippet.yml — merge that too; the two snippets are a pair).
+#
+# The persona prompt (callbacks/nevnew_persona_prompt.py) is mounted
+# read-only exactly like the telegram-bot service does it — AI Core imports
+# NEVNEW_SYSTEM_PROMPT from it instead of keeping a copy.
+
+services:
+  ai-core:
+    build: ./ai-core
+    container_name: newnew-ai-core
+    restart: unless-stopped
+    environment:
+      # Model traffic: through the LiteLLM proxy ("NevNew" = qwen3.8-max
+      # medium reasoning, see config.yaml). Spending stays inside the
+      # $15/30d budget cap.
+      - LITELLM_BASE_URL=http://litellm:4000/v1
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - NEVNEW_MODEL_NAME=NevNew
+      # Long-term memory service (issue #37) — REST, in-network.
+      - MEMORY_BASE_URL=http://memory:8000
+      - MEMORY_API_KEY=${MEMORY_API_KEY}
+      # Tool discovery/execution via mcpo (n8n MCP tools: Reminders,
+      # Calendar, Notes, GitHub — see n8n/mcp-tools.json). Set
+      # MCPO_BASE_URL= to disable the mcpo tool source entirely.
+      - MCPO_BASE_URL=http://mcpo:8000
+      - MCPO_API_KEY=${MCPO_API_KEY}
+      # Bearer auth for AI Core's own API (used by the bot/n8n/ops).
+      - AICORE_API_KEY=${AICORE_API_KEY}
+      # Optional tuning (defaults shown) — see ai-core/README.md:
+      # - AICORE_MAX_TOOL_ITERATIONS=6
+      # - AICORE_MEMORY_TOP_K=5
+      # - AICORE_TIMEZONE=Asia/Bangkok
+    volumes:
+      - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
+    ports:
+      # Host access for curl/debugging; in-network callers use
+      # http://ai-core:8000.
+      - "8010:8000"
+    depends_on:
+      litellm:
+        condition: service_healthy
+      memory:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - newnew-net

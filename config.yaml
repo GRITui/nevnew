@@ -5,40 +5,19 @@ model_list:
   # when the 1st 4xx/5xx's, etc.) — this is what fixes the "Available Model
   # Group Fallbacks=None" root cause behind issues #33/#34/#35.
   #
-  # Primary (free, current): minimax/minimax-m3:free on OpenRouter, routed
-  # through GMICloud — a quota pool independent of the paid models below.
-  # Replaces qwen3.8-max as primary (2026-09-06) because that model is paid
-  # and our account can only afford 1120 tokens (issue #41/#42/#43). Verified
-  # live against the OpenRouter API on 2026-09-07: returns clean $0 replies
-  # in ~1.5s on a single-message prompt.
-  - model_name: NevNew
-    litellm_params:
-      model: openrouter/minimax/minimax-m3:free
-      api_base: https://openrouter.ai/api/v1
-      api_key: os.environ/OPENROUTER_API_KEY
-      reasoning_effort: medium
-      max_tokens: 8192  # explicit cap — see budget rationale in commit msg
-      rpm: 30
-    model_info:
-      id: minimax-m3-free
-      mode: chat
-  # Fallback 1 (free, different provider on OpenRouter): nemotron-3-ultra
-  # free tier, used when minimax-m3 is 429ing from its own provider pool
-  # (same root cause as issues #25/#26/#29/#30 but for the new chain).
-  - model_name: NevNew
-    litellm_params:
-      model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
-      api_base: https://openrouter.ai/api/v1
-      api_key: os.environ/OPENROUTER_API_KEY
-      max_tokens: 8192
-      rpm: 20
-    model_info:
-      id: nemotron-3-ultra-free
-      mode: chat
-  # Fallback 2 (free, different provider again): gemma-4-31b free tier.
-  # Verified available on 2026-09-07; may 429 on shared upstream pool, in
-  # which case the next deployment or the cline fallback in
-  # telegram-bot/bot.py takes over.
+  # nemotron-3-ultra:free (nvidia) is TEMPORARILY REMOVED as of 2026-09-08.
+  # minimax-m3:free was pulled from OpenRouter's free tier entirely first
+  # (started 404ing: "This model is unavailable for free... use
+  # minimax/minimax-m3" — paid-only now), so nemotron was promoted to
+  # primary. But nemotron then turned out to hang indefinitely instead of
+  # erroring — OpenRouter sends SSE keep-alive padding forever with no
+  # completion, confirmed by a direct 30s+ probe against OpenRouter itself
+  # (not a LiteLLM/network issue). A deployment that hangs rather than
+  # fails is worse than one that's just down: it burns the entire
+  # request_timeout + retry budget before the router ever reaches a
+  # working deployment behind it, so NevNew timed out completely even with
+  # working fallbacks configured. Re-add once verified responsive again.
+  # Primary (free, current): gemma-4-31b free tier on OpenRouter.
   - model_name: NevNew
     litellm_params:
       model: openrouter/google/gemma-4-31b-it:free
@@ -49,12 +28,38 @@ model_list:
     model_info:
       id: gemma-4-31b-free
       mode: chat
+  # Fallback (paid, last resort): same Qwen model as NevNew-Pro below,
+  # added to the NevNew group itself. Added 2026-09-08 after discovering
+  # BOTH free deployments above can be down simultaneously and independently
+  # (nemotron hanging indefinitely with no response, gemma 429-rate-limited
+  # upstream, observed at the same time) — router-level fallback across free
+  # deployments alone isn't enough of a safety net; this is what actually
+  # keeps NevNew answering instead of falling through to the cline CLI
+  # stopgap in telegram-bot/bot.py every time the free pool has a bad day.
+  # max_tokens capped at 1024 (not NevNew-Pro's 16384) because the
+  # OpenRouter account balance can currently only afford ~1030 tokens per
+  # request (discovered 2026-09-08: 16384 here 402'd immediately with
+  # "requested 16384 tokens, but can only afford 1030" — same root cause as
+  # #41/#42/#43, now hit on this deployment too). A Telegram chat reply
+  # doesn't need more than this anyway. Covered by the same $15/month
+  # max_budget in litellm_settings.
+  - model_name: NevNew
+    litellm_params:
+      model: openrouter/qwen/qwen3.8-max-0902
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      reasoning_effort: medium
+      max_tokens: 1024
+      rpm: 10
+    model_info:
+      id: qwen3-8-max-fallback
+      mode: chat
 
   # NevNew-Pro: paid, kept as a distinct alias for clients that reference
-  # it and for when OpenRouter credits are topped up. The 16384 max_tokens
-  # cap here is critical: without it, LiteLLM forwards the full context
-  # window and OpenRouter 402s with "requested 65536 tokens but can only
-  # afford 1120" (root cause of #41/#42/#43).
+  # it directly. The 16384 max_tokens cap here is critical: without it,
+  # LiteLLM forwards the full context window and OpenRouter 402s with
+  # "requested 65536 tokens but can only afford 1120" (root cause of
+  # #41/#42/#43).
   - model_name: NevNew-Pro
     litellm_params:
       model: openrouter/qwen/qwen3.8-max-0902

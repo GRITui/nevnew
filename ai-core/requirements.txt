@@ -1,0 +1,9 @@
+# NevNew AI Core service (issue #39) — deliberately slim: model traffic goes
+# through the LiteLLM proxy and memory operations through the memory service
+# (issue #37), so no mem0/torch/qdrant-client here.
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+httpx>=0.27,<1.0
+pydantic>=2.7,<3.0
+# IANA timezone data for python:3.12-slim (get_current_datetime tool / TZ config).
+tzdata>=2024.1

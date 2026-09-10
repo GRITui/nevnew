@@ -1,0 +1,150 @@
+{
+  "name": "O2O Copilot Middleware",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "o2o-copilot",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Copilot Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        0
+      ],
+      "webhookId": "o2o-copilot"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const body = $json.body || {};\nconst prompt = String(body.prompt || '');\nconst viewSettings = body.viewSettings && typeof body.viewSettings === 'object' ? body.viewSettings : {};\nconst dataContext = String(body.dataContext || '');\nconst allowedOps = Array.isArray(body.allowedOps) ? body.allowedOps : [];\nconst system = [\n  'You are the O2O sales copilot for a Tops Thailand sales dashboard (streams: QC quick commerce, PS personal shopper, TOL Tops Online).',\n  'Answer using ONLY the provided data context, unless the question is general knowledge.',\n  'Always respond with STRICT JSON only — no markdown, no code fences — matching exactly:',\n  '{\"reply\": string, \"viewSettings\": object}',\n  'viewSettings may contain ONLY these optional keys, and only when the user clearly asks for the change:',\n  '- \"channel\": array, a non-empty subset of [\"O2O\",\"QC\",\"PS\",\"TOL\"]',\n  '- \"ops\": string, one of the allowed Head of Ops values (or \"\" for all)',\n  '- \"from\": string \"YYYY-MM-DD\"',\n  '- \"to\": string \"YYYY-MM-DD\"',\n  '- \"trendGranularity\": \"month\" | \"week\" | \"day\"',\n  '- \"showLabels\": boolean',\n  'Never invent extra keys. If the request is general conversation, set viewSettings to {}.',\n  'Reply in the language of the user message. Be concise and concrete, citing the numbers you were given.'\n].join('\\n');\nconst userContent = [\n  'Current view settings: ' + JSON.stringify(viewSettings),\n  'Allowed Head of Ops values: ' + JSON.stringify(allowedOps),\n  'Data context: ' + (dataContext || '(none provided)'),\n  '',\n  'User request: ' + prompt\n].join('\\n');\nreturn [{ json: { messages: [\n  { role: 'system', content: system },\n  { role: 'user', content: userContent }\n] } }];"
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Build Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://litellm:4000/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.LITELLM_MASTER_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'NevNew', temperature: 0.2, max_tokens: 800, messages: $('Build Messages').item.json.messages }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "LiteLLM Chat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        200,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const payload = $json;\nlet content = '';\ntry { content = payload.choices[0].message.content || ''; } catch (error) {}\nlet reply = '';\nlet viewSettings = {};\ntry {\n  const cleaned = String(content).replace(/```json/gi, '').replace(/```/g, '').trim();\n  const start = cleaned.indexOf('{');\n  const end = cleaned.lastIndexOf('}');\n  const parsed = JSON.parse(start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned);\n  if (typeof parsed.reply === 'string') reply = parsed.reply;\n  if (parsed.viewSettings && typeof parsed.viewSettings === 'object' && !Array.isArray(parsed.viewSettings)) {\n    const allowed = ['channel', 'ops', 'from', 'to', 'trendGranularity', 'showLabels'];\n    for (const key of Object.keys(parsed.viewSettings)) {\n      if (!allowed.includes(key)) delete parsed.viewSettings[key];\n    }\n    viewSettings = parsed.viewSettings;\n  }\n} catch (error) {}\nif (!reply) reply = 'The copilot model returned an unreadable answer — please rephrase or try again later.';\nreturn [{ json: { reply, viewSettings } }];"
+      },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Parse Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}"
+      },
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "name": "Reply",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        600,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Copilot Request": {
+      "main": [
+        [
+          {
+            "node": "Build Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Messages": {
+      "main": [
+        [
+          {
+            "node": "LiteLLM Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LiteLLM Chat": {
+      "main": [
+        [
+          {
+            "node": "Parse Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Reply": {
+      "main": [
+        [
+          {
+            "node": "Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

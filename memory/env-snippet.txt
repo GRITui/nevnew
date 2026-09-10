@@ -1,0 +1,34 @@
+# memory/env-snippet.txt — issue #37 (Mem0 + Qdrant memory service)
+#
+# ORCHESTRATOR: append these to the repo root .env (NOT .env.example only —
+# the compose snippet interpolates them at `docker compose up`). Never
+# commit .env (already gitignored).
+#
+# Bearer auth for the memory service REST API. Generate with:
+#   openssl rand -hex 24
+MEMORY_API_KEY=change-me-generate-with-openssl-rand-hex-24
+
+# ---------------------------------------------------------------------------
+# Optional overrides for the memory service (defaults shown — only uncomment
+# to change). Full list with explanations: memory/README.md.
+# ---------------------------------------------------------------------------
+# Multilingual local embedding model + its output dims (must match!).
+# MEM0_EMBEDDER_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+# MEM0_EMBEDDER_DIMS=384
+# Memory-extraction LLM (LiteLLM alias) and sampling knobs.
+# MEM0_LLM_MODEL=NevNew
+# MEM0_LLM_BASE_URL=http://litellm:4000/v1
+# MEM0_LLM_API_KEY=          # defaults to LITELLM_MASTER_KEY
+# MEM0_LLM_TEMPERATURE=0.1
+# MEM0_LLM_MAX_TOKENS=2000
+# Qdrant connection (in-network service name).
+# QDRANT_HOST=qdrant
+# QDRANT_PORT=6333
+# Retrieval knobs.
+# MEM0_SEARCH_TOP_K=5
+# MEM0_SEARCH_THRESHOLD=0.1
+# Collection prefix for per-user isolation (must start with a letter).
+# MEM0_COLLECTION_PREFIX=nevnew_mem_u_
+# Extra guidance appended to mem0's fact-extraction prompt, e.g. keep Thai
+# facts in Thai:
+# MEM0_CUSTOM_INSTRUCTIONS=Preserve each memory in the language it was expressed in (Thai or English). Extract durable facts about the user; skip transient small talk.

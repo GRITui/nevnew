@@ -1,17 +1,27 @@
 """Telegram bot: NevNew's MVP mobile/push channel (issue #11).
 
-Round-trip: Telegram message -> LiteLLM (/v1/chat/completions, model=NevNew)
--> reply. Persona is injected by LiteLLM's own callback (see
-callbacks/nevnew_persona.py) on this path — no duplicate persona logic here.
+Round-trip: Telegram message -> `opencode run` (OpenCode Go account quota)
+-> reply. This bypasses LiteLLM/OpenRouter entirely for the chat path
+(2026-09-09, see NevNew project memory) since OpenRouter's shared free-tier
+daily cap and the old cline-pass fallback can both go down at once. Persona
+(NEVNEW_SYSTEM_PROMPT, from callbacks/nevnew_persona_prompt.py) is prepended
+into the prompt text for every backend below, since none of them are routed
+through LiteLLM's own persona callback (callbacks/nevnew_persona.py) anymore.
 
-On a 429 (OpenRouter's shared free-tier daily cap exhausted), falls back to
-the `cline` CLI (a separate account/quota) instead — see _run_cline() and
-_gate_cline_reply() below. That path does duplicate the persona prompt
-(imported from callbacks/nevnew_persona_prompt.py, not re-typed) since it
-bypasses LiteLLM entirely.
+If OpenCode Go fails or its output is rejected by the safety gate, falls
+back to the `claude` CLI running Sonnet (a fully separate account/quota,
+authenticated via CLAUDE_CODE_OAUTH_TOKEN — see _run_claude_sonnet()).
+LiteLLM/cline are no longer in this chat path at all; LiteLLM still serves
+Open-WebUI directly and is untouched.
+
+Both backends are full agent CLIs, not chat APIs, so both are run
+locked-down (isolated scratch cwd, no tool approval) and their raw output
+goes through a fail-closed safety gate before ever reaching the user — see
+_run_opencode(), _run_claude_sonnet(), and _gate_agent_reply() below.
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -31,9 +41,6 @@ logger = logging.getLogger("nevnew-telegram-bot")
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 OWNER_ID = int(os.environ["TELEGRAM_OWNER_ID"])
-LITELLM_MASTER_KEY = os.environ["LITELLM_MASTER_KEY"]
-LITELLM_BASE_URL = os.environ.get("LITELLM_BASE_URL", "http://litellm:4000/v1")
-MODEL_NAME = os.environ.get("NEVNEW_MODEL_NAME", "NevNew")
 
 # Per-user in-memory conversation history, capped so context/cost stay
 # bounded. Resets on bot restart — acceptable for MVP (see BACKLOG.md if this
@@ -42,98 +49,223 @@ MAX_HISTORY_MESSAGES = 20
 _history: dict[int, list[dict[str, str]]] = {}
 
 TROUBLE_REPLY = "⚠️ Having some technical trouble reaching NevNew right now — try again in a bit."
-
-# cline fallback (rotate to the already-authenticated Cline account — a
-# separate quota pool from the OpenRouter key LiteLLM uses — when LiteLLM
-# 429s from OpenRouter's shared daily free-model cap). `cline` is a full
-# coding agent CLI, not a chat API, so this is intentionally locked down:
-# no tool approval, an empty scratch cwd, and the raw output goes through
-# _gate_cline_reply() below before ever reaching the user.
-CLINE_CONFIG_DIR = os.environ.get("CLINE_CONFIG_DIR", "/cline-home")
-CLINE_SCRATCH_CWD = "/app/cline-scratch"
-CLINE_TIMEOUT_SECONDS = 45
+VISION_TROUBLE_REPLY = "⚠️ Couldn't read that image right now — try again in a bit."
 MAX_TELEGRAM_MESSAGE_LENGTH = 4000
 
-os.makedirs(CLINE_SCRATCH_CWD, exist_ok=True)
+# Image path bypasses the opencode/claude agent CLIs entirely (see module
+# docstring) — neither has a non-tool-call way to ingest an arbitrary image
+# under this bot's calling convention, and the chat gate below rejects any
+# reply involving a tool call. Instead this is a single deterministic
+# OpenRouter vision call, same OPENROUTER_API_KEY already in .env / passed
+# into this container via docker-compose's env_file.
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_VISION_MODEL = os.environ.get("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash")
+OPENROUTER_VISION_MAX_TOKENS = 1024
+OPENROUTER_VISION_TIMEOUT_SECONDS = 45
+VISION_SYSTEM_SUFFIX = (
+    "\n\nThe user just sent an image. First transcribe any visible text "
+    "verbatim, then briefly respond about the image in your own voice."
+)
+
+# Both backends below are full agent CLIs, not chat APIs, so both run
+# locked down: an isolated scratch cwd they can't escape, no tool approval,
+# and the raw output goes through _gate_agent_reply() before ever reaching
+# the user. Only the latest message text is sent (not full history) —
+# matches the old cline-fallback pattern this replaces.
+OPENCODE_MODEL = os.environ.get("OPENCODE_MODEL", "opencode-go/glm-5.3")
+OPENCODE_SCRATCH_CWD = "/app/opencode-scratch"
+OPENCODE_TIMEOUT_SECONDS = 45
+
+CLAUDE_SONNET_SCRATCH_CWD = "/app/claude-scratch"
+CLAUDE_SONNET_TIMEOUT_SECONDS = 45
+
+os.makedirs(OPENCODE_SCRATCH_CWD, exist_ok=True)
+os.makedirs(CLAUDE_SONNET_SCRATCH_CWD, exist_ok=True)
 
 
-async def _run_cline(prompt: str) -> tuple[str | None, bool]:
-    """Run `prompt` through the cline CLI. Returns (text, had_tool_calls)."""
+async def _run_opencode(prompt: str) -> tuple[str | None, bool]:
+    """Run `prompt` through `opencode run` (OpenCode Go quota).
+
+    Returns (text, had_tool_calls). No --auto flag: opencode can still
+    execute read-only tools, but --dir is the isolated scratch cwd so it
+    can only ever touch that, never the bot's own files — and the gate
+    below rejects the reply outright if ANY tool call was attempted,
+    sandboxed or not.
+    """
+    stdin_payload = f"{NEVNEW_SYSTEM_PROMPT}\n\n---\n\n{prompt}"
     cmd = [
-        "cline",
-        # A bare single-word prompt (e.g. "hi") makes cline's own CLI arg
-        # parser bail with "Unknown command or unquoted prompt" — it's
-        # apparently ambiguous with a subcommand name internally. A leading
-        # space works around it without changing what the model sees.
-        # Reproduced directly against `cline` 3.0.61 on 2026-09-05; harmless
-        # if a future version fixes it upstream.
-        f" {prompt}",
-        "--provider", "cline",
-        "--auto-approve", "false",
-        "--json",
-        "--cwd", CLINE_SCRATCH_CWD,
-        "--config", CLINE_CONFIG_DIR,
-        "--data-dir", f"{CLINE_CONFIG_DIR}/data",
-        "--system", NEVNEW_SYSTEM_PROMPT,
-        "--timeout", str(CLINE_TIMEOUT_SECONDS),
+        "opencode", "run",
+        "--dir", OPENCODE_SCRATCH_CWD,
+        "-m", OPENCODE_MODEL,
+        "--format", "json",
     ]
     try:
         proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=CLINE_TIMEOUT_SECONDS + 10
+            proc.communicate(input=stdin_payload.encode()),
+            timeout=OPENCODE_TIMEOUT_SECONDS + 10,
         )
     except (asyncio.TimeoutError, OSError) as exc:
-        logger.error("cline fallback failed to run: %s", exc)
+        logger.error("opencode primary failed to run: %s", exc)
         return None, False
 
     if proc.returncode != 0:
         logger.error(
-            "cline fallback exited %s: %s", proc.returncode, stderr.decode(errors="replace")[-2000:]
+            "opencode primary exited %s: %s", proc.returncode, stderr.decode(errors="replace")[-2000:]
         )
         return None, False
 
-    text = None
+    text_parts = []
     had_tool_calls = False
     for line in stdout.decode(errors="replace").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if event.get("type") == "run_result":
-            text = event.get("text")
-        elif event.get("type") == "agent_event":
-            inner = event.get("event", {})
-            if inner.get("type") == "iteration_end" and inner.get("hadToolCalls"):
-                had_tool_calls = True
-    return text, had_tool_calls
+        etype = event.get("type", "")
+        part = event.get("part") or event.get("properties", {}).get("part", {})
+        ptype = part.get("type") if isinstance(part, dict) else None
+        if ptype == "text":
+            text_parts.append(part.get("text", ""))
+        elif ptype == "tool" or "tool" in etype.lower():
+            had_tool_calls = True
+
+    return "".join(text_parts), had_tool_calls
 
 
-def _gate_cline_reply(raw_text: str | None, had_tool_calls: bool) -> str | None:
-    """Safety gate between cline's agentic output and the Telegram user.
+async def _run_claude_sonnet(prompt: str) -> tuple[str | None, bool]:
+    """Run `prompt` through the `claude` CLI (Sonnet), as a fallback when
+    OpenCode Go is unavailable. Returns (text, had_tool_calls).
 
-    cline is a coding agent, not a chat API — this rejects anything that
-    isn't a plain conversational answer, so a fallback reply never leaks
-    tool-call attempts or an empty/runaway response straight to the user.
-    Fails closed: any rejection here means the caller falls through to the
-    ordinary "technical trouble" reply instead.
+    Auth is CLAUDE_CODE_OAUTH_TOKEN (set in the container env — see
+    docker-compose.yml), NOT an API key, and NOT --bare: --bare only reads
+    ANTHROPIC_API_KEY/apiKeyHelper and never OAuth, which would silently
+    break auth here. --allowedTools "" plus --permission-mode manual is the
+    fail-closed backstop (no human present to approve anything headless).
     """
-    if had_tool_calls:
-        logger.warning("cline fallback attempted a tool call — rejected by chat gate")
-        return None
+    cmd = [
+        "claude", "-p", prompt,
+        "--model", "sonnet",
+        "--system-prompt", NEVNEW_SYSTEM_PROMPT,
+        "--output-format", "json",
+        "--allowedTools", "",
+        "--permission-mode", "manual",
+        "--add-dir", CLAUDE_SONNET_SCRATCH_CWD,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=CLAUDE_SONNET_SCRATCH_CWD,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=CLAUDE_SONNET_TIMEOUT_SECONDS + 10
+        )
+    except (asyncio.TimeoutError, OSError) as exc:
+        logger.error("claude sonnet fallback failed to run: %s", exc)
+        return None, False
+
+    if proc.returncode != 0:
+        logger.error(
+            "claude sonnet fallback exited %s: %s",
+            proc.returncode, stderr.decode(errors="replace")[-2000:],
+        )
+        return None, False
+
+    try:
+        result = json.loads(stdout.decode(errors="replace"))
+    except json.JSONDecodeError as exc:
+        logger.error("claude sonnet fallback returned unparseable output: %s", exc)
+        return None, False
+
+    had_tool_calls = bool(result.get("permission_denials"))
+    if result.get("is_error"):
+        had_tool_calls = had_tool_calls or result.get("subtype") == "error_max_turns"
+        return None, had_tool_calls
+    return result.get("result"), had_tool_calls
+
+
+def _clean_reply_text(raw_text: str | None) -> str | None:
+    """Shared cleanup: strip stray markdown-image syntax and cap length.
+
+    Used by both the agent-CLI chat gate below and the vision path, which
+    has no had_tool_calls concept of its own (a single API call can't
+    attempt a tool call).
+    """
     if not raw_text or not raw_text.strip():
         return None
-
     text = raw_text.strip()
-    # Persona is text-only (see NEVNEW_SYSTEM_PROMPT) — strip stray
-    # markdown-image syntax in case the model emits it anyway.
     text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text).strip()
     if not text:
         return None
     if len(text) > MAX_TELEGRAM_MESSAGE_LENGTH:
         text = text[:MAX_TELEGRAM_MESSAGE_LENGTH].rstrip() + "…"
     return text
+
+
+def _gate_agent_reply(raw_text: str | None, had_tool_calls: bool, *, source: str) -> str | None:
+    """Safety gate between an agent CLI's output and the Telegram user.
+
+    Both OpenCode and the Claude CLI are full agents, not chat APIs — this
+    rejects anything that isn't a plain conversational answer, so a reply
+    never leaks tool-call attempts or an empty/runaway response straight to
+    the user. Fails closed: any rejection here means the caller falls
+    through to the next backend, or to the ordinary "technical trouble"
+    reply if there is none.
+    """
+    if had_tool_calls:
+        logger.warning("%s attempted a tool call — rejected by chat gate", source)
+        return None
+    return _clean_reply_text(raw_text)
+
+
+async def _run_vision_ocr(image_bytes: bytes, caption: str | None) -> str | None:
+    """Send an image to a vision-capable OpenRouter model, return the reply.
+
+    Deliberately bypasses opencode/claude (see module docstring + the
+    OPENROUTER_VISION_MODEL comment above) — this is a single non-agentic
+    HTTP call, so there's no tool-call surface to gate against.
+    """
+    if not OPENROUTER_API_KEY:
+        logger.error("OPENROUTER_API_KEY not set — cannot run vision OCR")
+        return None
+
+    image_b64 = base64.b64encode(image_bytes).decode()
+    user_content: list[dict] = [
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+    ]
+    user_content.append({"type": "text", "text": caption or "What does this image show?"})
+
+    payload = {
+        "model": OPENROUTER_VISION_MODEL,
+        "max_tokens": OPENROUTER_VISION_MAX_TOKENS,
+        "messages": [
+            {"role": "system", "content": NEVNEW_SYSTEM_PROMPT + VISION_SYSTEM_SUFFIX},
+            {"role": "user", "content": user_content},
+        ],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=OPENROUTER_VISION_TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                json=payload,
+            )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+    except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+        logger.error("vision OCR call failed: %s", exc)
+        return None
 
 
 def _is_owner(update: Update) -> bool:
@@ -168,44 +300,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     history.append({"role": "user", "content": update.message.text})
     history[:] = history[-MAX_HISTORY_MESSAGES:]
 
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{LITELLM_BASE_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {LITELLM_MASTER_KEY}"},
-                json={"model": MODEL_NAME, "messages": history},
-            )
-            response.raise_for_status()
-            data = response.json()
-        reply_text = data["choices"][0]["message"]["content"]
-    except httpx.HTTPStatusError as exc:
-        # Fall back to cline on any upstream/LiteLLM failure that's likely
-        # transient or quota-driven — 429 (rate limit, #11), 402 (credits,
-        # #41/#42/#43), and 5xx (upstream overload, #33/#34). 4xx other than
-        # 402/429 (e.g. 401/403) are auth errors and shouldn't waste a
-        # cline call.
-        if exc.response.status_code in (402, 429, 500, 502, 503, 504):
-            logger.warning(
-                "LiteLLM returned %d — falling back to cline for user_id=%s",
-                exc.response.status_code, user.id,
-            )
-            raw_text, had_tool_calls = await _run_cline(update.message.text)
-            fallback_text = _gate_cline_reply(raw_text, had_tool_calls)
-            if fallback_text:
-                history.append({"role": "assistant", "content": fallback_text})
-                history[:] = history[-MAX_HISTORY_MESSAGES:]
-                await update.message.reply_text(fallback_text)
-                return
-        logger.error("LiteLLM round-trip failed: %s", exc)
+    raw_text, had_tool_calls = await _run_opencode(update.message.text)
+    reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="opencode primary")
+
+    if reply_text is None:
+        logger.warning("OpenCode Go primary failed/rejected — falling back to claude sonnet for user_id=%s", user.id)
+        raw_text, had_tool_calls = await _run_claude_sonnet(update.message.text)
+        reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="claude sonnet fallback")
+
+    if reply_text is None:
+        logger.error("Both opencode primary and claude sonnet fallback failed for user_id=%s", user.id)
         # Roll back the user turn we just recorded — it never got a reply,
         # so keeping it would desync history from what the model actually saw.
         history.pop()
         await update.message.reply_text(TROUBLE_REPLY)
         return
-    except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
-        logger.error("LiteLLM round-trip failed: %s", exc)
+
+    history.append({"role": "assistant", "content": reply_text})
+    history[:] = history[-MAX_HISTORY_MESSAGES:]
+    await update.message.reply_text(reply_text)
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if user is None or update.message is None or not update.message.photo:
+        return
+
+    if user.id != OWNER_ID:
+        logger.warning("Ignored photo from non-owner user_id=%s", user.id)
+        return
+
+    caption = update.message.caption
+    photo = update.message.photo[-1]
+    tg_file = await photo.get_file()
+    image_bytes = bytes(await tg_file.download_as_bytearray())
+
+    history = _history.setdefault(user.id, [])
+    history.append({"role": "user", "content": f"[sent an image]{f' {caption}' if caption else ''}"})
+    history[:] = history[-MAX_HISTORY_MESSAGES:]
+
+    raw_text = await _run_vision_ocr(image_bytes, caption)
+    reply_text = _clean_reply_text(raw_text)
+
+    if reply_text is None:
+        logger.error("Vision OCR failed for user_id=%s", user.id)
         history.pop()
-        await update.message.reply_text(TROUBLE_REPLY)
+        await update.message.reply_text(VISION_TROUBLE_REPLY)
         return
 
     history.append({"role": "assistant", "content": reply_text})
@@ -218,7 +358,8 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logger.info("NevNew Telegram bot starting (owner_id=%s, base_url=%s)", OWNER_ID, LITELLM_BASE_URL)
+    app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_photo))
+    logger.info("NevNew Telegram bot starting (owner_id=%s, primary=opencode/%s)", OWNER_ID, OPENCODE_MODEL)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

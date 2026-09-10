@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 #
 # autofix_with_cline.sh <issue_number> — dispatch a filed bug (see
-# error_watcher.py) to cline/minimax-m3 (minimax/minimax-m3:free) for an
+# error_watcher.py) to cline with deepseek/deepseek-v4-pro for an
 # autonomous fix attempt: branch, let cline edit files agentically, commit,
 # push, open a PR labeled auto-fix. Claude reviews and merges separately
 # (see scripts/review_and_merge_autofix_prs.sh) — this script never merges
 # anything itself.
+#
+# (2026-09-06: worker model swapped minimax-m3:free -> deepseek-v4-pro per
+# the owner's delegation guideline — see scripts/offload.sh for the tier
+# rationale. deepseek-v4-pro is cheap and far stronger at code than the
+# old free model; --thinking low keeps the worker lean.)
 #
 # Usage: ./scripts/autofix_with_cline.sh <issue_number>
 # Requires OPENROUTER_API_KEY in .env (see .env.example) and `gh` authenticated.
@@ -56,7 +61,7 @@ should be complete and ready to review — don't leave partial/commented-out
 attempts."
 
 cline -P openrouter -k "$OPENROUTER_API_KEY" \
-  -m minimax/minimax-m3:free --thinking low --auto-approve true \
+  -m deepseek/deepseek-v4-pro --thinking low --auto-approve true \
   -c "$PROJECT_ROOT" -t 600 "$PROMPT"
 
 if [ -z "$(git status --porcelain)" ]; then

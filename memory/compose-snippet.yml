@@ -1,0 +1,66 @@
+# memory/compose-snippet.yml — issue #37 (Mem0 + Qdrant long-term memory).
+#
+# ORCHESTRATOR: merge the `memory` service into docker-compose.yml's
+# `services:` block, and the `nevnew_memory_data` volume into the
+# top-level `volumes:` block. Both must join the existing `newnew-net`
+# network.
+#
+# IMPORTANT — do NOT add `env_file: .env` to this service. mem0's OpenAI
+# LLM provider auto-routes to OpenRouter when OPENROUTER_API_KEY is present
+# in the process environment, which would bypass the LiteLLM proxy (and its
+# budget cap). nevnew_memory/config.py strips those two vars from its own
+# process at startup as a second line of defense, but keeping them out of
+# the container entirely is the primary defense. Only the variables below
+# are passed in explicitly.
+
+services:
+  memory:
+    build: ./memory
+    container_name: newnew-memory
+    restart: unless-stopped
+    environment:
+      # Qdrant — the existing shared service (service name on newnew-net is
+      # `qdrant`; from the host it's http://localhost:6333).
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      # Memory extraction LLM: the LiteLLM proxy's "NevNew" alias
+      # (qwen3.8-max, medium reasoning — see config.yaml). This spends
+      # tokens from the same $15/30d budget cap as chat traffic.
+      - MEM0_LLM_BASE_URL=http://litellm:4000/v1
+      - MEM0_LLM_MODEL=NevNew
+      - MEM0_LLM_API_KEY=${LITELLM_MASTER_KEY}
+      # Local multilingual embeddings (default; override with these if ever
+      # switching to an OpenAI-compatible embedding endpoint):
+      # - MEM0_EMBEDDER_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+      # - MEM0_EMBEDDER_DIMS=384
+      # Bearer auth for this service's own REST API (ai-core forwards it).
+      - MEMORY_API_KEY=${MEMORY_API_KEY}
+      # mem0 usage telemetry is off for this private stack (also baked into
+      # the image ENV; kept explicit here).
+      - MEM0_TELEMETRY=false
+      # Optional tuning (defaults shown) — see memory/README.md:
+      # - MEM0_SEARCH_TOP_K=5
+      # - MEM0_SEARCH_THRESHOLD=0.1
+      # - MEM0_QDRANT_ON_DISK=false
+    volumes:
+      # SQLite history (mem0) + the downloaded embedding model cache.
+      - nevnew_memory_data:/data
+    ports:
+      # Ops/debug access from the host; in-network callers use
+      # http://memory:8000 (no port publish needed).
+      - "8011:8000"
+    depends_on:
+      - qdrant
+      - litellm
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    networks:
+      - newnew-net
+
+# ORCHESTRATOR: add to the existing top-level `volumes:` block:
+#   nevnew_memory_data:
+#     name: nevnew_memory_data

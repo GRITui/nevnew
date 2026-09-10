@@ -1,0 +1,76 @@
+{
+  "name": "NevNew Offload Watcher",
+  "nodes": [
+    {
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Every Minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-160, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Watch Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-160, 160],
+      "webhookId": "nevnew-offload-watch",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "offload-watch",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Run Watcher",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [80, 80],
+      "parameters": {
+        "command": "python3 /Users/grit/nevnew/scripts/offload_watch.py",
+        "executeOnce": true
+      }
+    }
+  ],
+  "connections": {
+    "Every Minute": {
+      "main": [
+        [
+          {
+            "node": "Run Watcher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Watch Webhook": {
+      "main": [
+        [
+          {
+            "node": "Run Watcher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}

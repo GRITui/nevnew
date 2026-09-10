@@ -1,0 +1,18 @@
+# NevNew memory service (issue #37).
+#
+# mem0ai==2.0.0 is pinned exactly: store.py is written against the verified
+# 2.0.0 API (AsyncMemory keyword filters, config-coercion behavior, the
+# shared-QdrantClient vector-store config path, and the OpenRouter env
+# auto-route quirk in the OpenAI LLM provider). Re-verify store.py against
+# the new version before bumping this pin.
+mem0ai==2.0.0
+
+# Local multilingual (Thai + English) embeddings without an external API.
+# CPU-only torch is pre-installed in the Dockerfile; on x86_64 the CUDA
+# wheels would otherwise balloon the image by ~2 GB.
+sentence-transformers>=3.0,<7.0
+
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+httpx>=0.27,<1.0
+pydantic>=2.7,<3.0

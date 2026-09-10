@@ -227,12 +227,12 @@
         <!-- OpenRouter free-tier pool -->
         <rect x="680" y="100" width="240" height="96" rx="6" fill="#f5f5f5"/>
         <rect x="680" y="100" width="240" height="96" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
-        <rect x="688" y="108" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.3)" stroke-width="0.8"/>
-        <text x="706" y="117" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="7" letter-spacing="0.06em" fill="#4f5d75">FREE</text>
+        <rect x="688" y="108" width="44" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.3)" stroke-width="0.8"/>
+        <text x="710" y="117" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="7" letter-spacing="0.06em" fill="#4f5d75">MIXED</text>
         <text x="800" y="140" text-anchor="middle" font-family="'Geist', sans-serif" font-size="12" font-weight="600" fill="#2d3142">OpenRouter fallback chain</text>
-        <text x="800" y="156" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">z-ai/glm-5.2:free &middot; primary</text>
-        <text x="800" y="170" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">nemotron-3-super:free &middot; fallback 1</text>
-        <text x="800" y="184" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">gemma-4-31b:free &middot; fallback 2</text>
+        <text x="800" y="156" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">gemma-4-31b:free &middot; primary</text>
+        <text x="800" y="170" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">qwen3.8-max-0902 &middot; fallback (paid)</text>
+        <text x="800" y="184" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#7a8399">nemotron-3-ultra:free &middot; removed (hangs)</text>
 
         <!-- n8n MCP Bridge / mcpo (the gap) -->
         <rect x="320" y="280" width="240" height="80" rx="6" fill="#f5f5f5"/>
@@ -249,15 +249,15 @@
         <rect x="48" y="408" width="32" height="12" rx="2" fill="transparent" stroke="rgba(122,131,153,0.5)" stroke-width="0.8"/>
         <text x="64" y="417" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="7" letter-spacing="0.06em" fill="#4f5d75">CLI</text>
         <text x="120" y="438" text-anchor="middle" font-family="'Geist', sans-serif" font-size="12" font-weight="600" fill="#2d3142">Claude Sonnet 5</text>
-        <text x="120" y="454" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">offload_to_minimax.sh</text>
+        <text x="120" y="454" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">offload.sh &middot; tiered dispatch</text>
 
         <!-- Offload worker model -->
         <rect x="320" y="400" width="240" height="64" rx="6" fill="#f5f5f5"/>
         <rect x="320" y="400" width="240" height="64" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
         <rect x="328" y="408" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.3)" stroke-width="0.8"/>
-        <text x="346" y="417" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="7" letter-spacing="0.06em" fill="#4f5d75">FREE</text>
+        <text x="346" y="417" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="7" letter-spacing="0.06em" fill="#4f5d75">PAID</text>
         <text x="440" y="434" text-anchor="middle" font-family="'Geist', sans-serif" font-size="12" font-weight="600" fill="#2d3142">Offload worker</text>
-        <text x="440" y="450" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">minimax-m3:free &middot; OpenRouter</text>
+        <text x="440" y="450" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">deepseek-v4-pro &middot; default tier</text>
 
         <!-- ============ LEGEND ============ -->
         <line x1="40" y1="500" x2="1040" y2="500" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
@@ -267,7 +267,7 @@
         <text x="166" y="516" font-family="'Geist', sans-serif" font-size="10" fill="#2d3142">Primary hub</text>
 
         <rect x="300" y="508" width="10" height="10" rx="2" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)"/>
-        <text x="316" y="516" font-family="'Geist', sans-serif" font-size="10" fill="#2d3142">External free model</text>
+        <text x="316" y="516" font-family="'Geist', sans-serif" font-size="10" fill="#2d3142">External model (OpenRouter)</text>
 
         <rect x="500" y="508" width="10" height="10" rx="2" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/>
         <text x="516" y="516" font-family="'Geist', sans-serif" font-size="10" fill="#2d3142">Entry point / device</text>
@@ -278,12 +278,16 @@
     </div>
     <figcaption>
       Open-WebUI and the Telegram bot container both proxy through one LiteLLM instance, which injects
-      NevNew's persona and tries three free OpenRouter models in fallback order. The n8n&rarr;mcpo tool
-      bridge registers cleanly with Open-WebUI but backend logs confirm it is <strong>never actually
-      called</strong> at chat time (dashed line) &mdash; tracked as
-      <a href="https://github.com/GRITui/nevnew/issues/1" target="_blank" rel="noopener">issue #1</a>.
-      Separately, Claude can call a free worker model directly for engineering subtasks, skipping LiteLLM
-      and the persona entirely.
+      NevNew's persona and falls over from the free <code>gemma-4-31b</code> deployment to a capped, paid
+      <code>qwen3.8-max-0902</code> deployment when the free pool is down &mdash; added 2026-09-08 after
+      discovering both free deployments could fail at once.
+      <code>nemotron-3-ultra:free</code> is temporarily pulled from the chain (it hangs indefinitely on
+      OpenRouter instead of erroring). The n8n&rarr;mcpo tool bridge registers cleanly with Open-WebUI but
+      backend logs confirm it is <strong>never actually called</strong> at chat time (dashed line)
+      &mdash; tracked as <a href="https://github.com/GRITui/nevnew/issues/1" target="_blank" rel="noopener">issue #1</a>.
+      Separately, Claude offloads engineering subtasks through <code>offload.sh</code>'s tiered dispatcher
+      (paid <code>deepseek-v4-pro</code> by default), skipping LiteLLM and the persona entirely &mdash;
+      the old free <code>minimax-m3:free</code> worker was deprecated 2026-09-06.
     </figcaption>
   </figure>
 
@@ -367,8 +371,8 @@
         <rect x="448" y="60" width="24" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.5)" stroke-width="0.8"/>
         <text x="460" y="69" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="7" letter-spacing="0.06em" fill="#eb6c36">AI</text>
         <text x="540" y="92" text-anchor="middle" font-family="'Geist', sans-serif" font-size="12" font-weight="600" fill="#2d3142">autofix_with_cline.sh</text>
-        <text x="540" y="108" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">minimax-m3 / north-mini-code:free</text>
-        <text x="540" y="122" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">&rarr; nemotron-3-ultra:free (OpenCode Zen)</text>
+        <text x="540" y="108" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#4f5d75">deepseek/deepseek-v4-pro</text>
+        <text x="540" y="122" text-anchor="middle" font-family="'Geist Mono', monospace" font-size="9" fill="#7a8399">was minimax-m3:free &middot; swapped 09-06</text>
         <text x="540" y="138" text-anchor="middle" font-family="'Geist', sans-serif" font-size="9" fill="#7a8399">via cline &middot; auto-approve</text>
 
         <!-- 4. Fix PR -->
@@ -420,10 +424,11 @@
       </svg>
     </div>
     <figcaption>
-      <code>minimax-m3:free</code> and <code>north-mini-code:free</code> share OpenRouter's account-wide
-      50 req/day free-tier cap (not per-model) &mdash; when that's exhausted, dispatch falls over to
-      <code>opencode/nemotron-3-ultra-free</code> on the separate OpenCode Zen quota pool. nevnew has no
-      CI, so the merge gate substitutes an in-place rebuild + healthcheck of the affected container for
+      The worker model swapped from <code>minimax-m3:free</code> (with a <code>nemotron-3-ultra-free</code>
+      OpenCode Zen fallback) to paid <code>deepseek/deepseek-v4-pro</code> on 2026-09-06 &mdash; the free
+      tier kept hitting OpenRouter's account-wide 50 req/day cap, and deepseek is far stronger at code
+      besides. nevnew has no CI, so the merge gate substitutes an in-place rebuild + healthcheck of the
+      affected container for
       &ldquo;tests green.&rdquo; The n8n workflow that triggers this chain
       (&ldquo;NevNew Error Watch &amp; Autofix&rdquo;) still needs a one-time manual activation in the n8n
       UI &mdash; everything downstream (scripts, label, PR flow, merge gate) is built and proven: PR

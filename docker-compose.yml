@@ -73,6 +73,10 @@ services:
       - N8N_HOST=n8n.local
       - WEBHOOK_URL=http://localhost:5678/
       - VUE_APP_SERVER_PORT=5678
+      # O2O copilot middleware (n8n/workflows/o2o-copilot-middleware.json) calls
+      # LiteLLM on the shared network; the key is passed through for the
+      # HTTP Request node's Authorization header.
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/workflows
@@ -137,15 +141,13 @@ services:
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_OWNER_ID=${TELEGRAM_OWNER_ID}
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
-      - LITELLM_BASE_URL=http://litellm:4000/v1
-      - CLINE_CONFIG_DIR=/cline-home
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
-      - ${HOME}/.cline:/cline-home
-    depends_on:
-      litellm:
-        condition: service_healthy
+      # OpenCode Go auth (auth.json has both `opencode` and `opencode-go`
+      # profiles) — container HOME is /root, so this matches opencode's
+      # default XDG_DATA_HOME/opencode lookup path.
+      - ${HOME}/.local/share/opencode/auth.json:/root/.local/share/opencode/auth.json:ro
     networks:
       - newnew-net
 
