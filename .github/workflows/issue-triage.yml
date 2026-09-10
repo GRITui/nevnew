@@ -1,0 +1,39 @@
+name: AI Issue Triage
+
+on:
+  issues:
+    types: [opened, reopened, labeled]
+  schedule:
+    - cron: "17 */6 * * *" # every 6h, offset to avoid top-of-hour traffic
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: ai-issue-triage
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install & auth opencode (OpenCode Go)
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/.local/share/opencode"
+          echo "${{ secrets.OPENCODE_AUTH_JSON_B64 }}" | base64 -d > "$HOME/.local/share/opencode/auth.json"
+          chmod 600 "$HOME/.local/share/opencode/auth.json"
+
+      - name: Triage issues
+        run: ./scripts/gha_triage_issues.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          GITHUB_TRIGGER_ISSUE: ${{ github.event.issue.number }}

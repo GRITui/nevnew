@@ -1,0 +1,51 @@
+name: AI PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review (empty = all open PRs)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || inputs.pr_number || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install & auth opencode (OpenCode Go)
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/.local/share/opencode"
+          echo "${{ secrets.OPENCODE_AUTH_JSON_B64 }}" | base64 -d > "$HOME/.local/share/opencode/auth.json"
+          chmod 600 "$HOME/.local/share/opencode/auth.json"
+
+      - name: Collect PR(s) to review
+        id: prs
+        run: |
+          PRN="${{ github.event.pull_request.number || inputs.pr_number }}"
+          if [ -z "$PRN" ]; then
+            PRN=$(gh pr list --state open --limit 10 --json number -q 'map(.number) | join(" ")')
+          fi
+          echo "prs=$PRN" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: AI review + auto-merge
+        run: ./scripts/gha_review_prs.sh "${{ steps.prs.outputs.prs }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
