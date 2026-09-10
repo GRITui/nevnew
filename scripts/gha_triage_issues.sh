@@ -20,6 +20,9 @@ SCRATCH="$(mktemp -d)"
 
 SYSTEM_PROMPT="You are an automated issue triager for nevnew (a personal AI assistant stack: dockerized LiteLLM/n8n/Open-WebUI/Telegram-bot). You classify one GitHub issue at a time. You answer in the exact output format requested and nothing else. You cannot run tools — base everything on the issue data given."
 
+EXISTING_LABELS=$(gh label list --repo "$REPO" --limit 50 --json name -q 'map(.name) | join(",")')
+echo "existing labels: $EXISTING_LABELS"
+
 read_one() {
   gh issue view "$1" --repo "$REPO" \
     --json number,title,body,labels,comments \
