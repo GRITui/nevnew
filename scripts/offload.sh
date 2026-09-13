@@ -430,10 +430,17 @@ except urllib.error.HTTPError as e:
     sys.exit(1)
 
 try:
-    content = body["choices"][0]["message"]["content"]
-except (KeyError, IndexError, TypeError):
+    msg = body["choices"][0]["message"]
+    content = msg.get("content")
+except (KeyError, IndexError, TypeError, AttributeError):
     sys.stderr.write(f"OpenAI-compatible error: unexpected response shape: {json.dumps(body)[:500]}\n")
     sys.exit(1)
+if not content or not content.strip():
+    # qwen3.8 on the 9arm gateway sometimes returns the answer in
+    # reasoning_content with empty content (observed 2026-09-13 on code
+    # tasks; trivial prompts return content normally). Fall back rather
+    # than failing the dispatch.
+    content = msg.get("reasoning_content")
 if not content or not content.strip():
     sys.stderr.write("openai worker returned no text\n")
     sys.exit(1)

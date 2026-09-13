@@ -43,9 +43,16 @@ class LiteLLMClient:
         await self._client.aclose()
 
     async def ping(self, timeout: float = 3.0) -> bool:
-        """Cheap liveness check against the proxy (health/liveliness)."""
+        """Cheap liveness check against the proxy (health/liveliness).
+
+        The health endpoint lives at the proxy root (/health/liveliness),
+        not under the /v1 API prefix — strip a trailing /v1 so we don't
+        ping /v1/health/liveliness (404). See issue #66.
+        """
         try:
             base = self._chat_url.rsplit("/chat/completions", 1)[0]
+            if base.endswith("/v1"):
+                base = base[: -len("/v1")]
             response = await self._client.get(f"{base}/health/liveliness", timeout=timeout)
             return response.status_code == 200
         except httpx.HTTPError:
