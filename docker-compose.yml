@@ -100,7 +100,7 @@ services:
         "--api-key", "${MCPO_API_KEY}",
         "--server-type", "streamable-http",
         "--",
-        "http://host.docker.internal:5678/mcp/c583a1a7-1cba-4fe8-a7bc-3971b6264850",
+        "http://host.docker.internal:5678/mcp/b7e2d1a4-9c3f-4e8a-a6d2-5f1b0c7e9d21",
       ]
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/openapi.json', timeout=5).status == 200 else 1)"]
