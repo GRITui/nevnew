@@ -21,6 +21,24 @@ services:
     networks:
       - newnew-net
 
+  # Redis — LiteLLM semantic/exact-prefix response cache (Phase 1: prompt
+  # caching). Survives restarts; shared across LiteLLM workers.
+  redis:
+    image: redis:7-alpine
+    container_name: newnew-redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - newnew-net
+
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
     container_name: newnew-litellm
@@ -32,8 +50,11 @@ services:
     environment:
       - NINEARM_API_KEY=${NINEARM_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
       - DATABASE_URL=postgresql://litellm:litellm@postgres:5432/litellm
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - litellm_data:/app/data
@@ -42,6 +63,8 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=5).status == 200 else 1)"]
@@ -145,8 +168,14 @@ services:
       # Cline primary backend: the 9arm gateway key (same provider/model as
       # the Cline session). Passed to the cline CLI via -k at runtime.
       - NINEARM_API_KEY=${NINEARM_API_KEY}
-      # Sonnet fallback backend (separate account/quota).
-      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
+      # Fallback backend: the claude CLI pointed at the SAME 9arm gateway
+      # (Anthropic-format /v1/messages endpoint) running the SAME model as
+      # primary — the whole bot runs on one provider/model, no separate
+      # account/quota. (Replaces the old Sonnet OAuth fallback, 2026-09-13.)
+      - ANTHROPIC_BASE_URL=https://gateway.9arm.co
+      - ANTHROPIC_AUTH_TOKEN=${NINEARM_API_KEY}
+      - ANTHROPIC_SMALL_FAST_MODEL=qwen3.8-27b-fp8
+      - CLAUDE_FALLBACK_MODEL=qwen3.8-27b-fp8
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
     networks:
@@ -252,6 +281,8 @@ volumes:
     name: newnew_open_webui_data
   litellm_data:
     name: litellm_data
+  redis_data:
+    name: redis_data
   postgres_data:
     name: postgres_data
   qdrant_storage:

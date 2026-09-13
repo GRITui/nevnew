@@ -1,8 +1,8 @@
 model_list:
-  # NevNew's chat engine. model_name is what Open-WebUI displays above each
-  # assistant message and in the model picker. This is intentionally pinned
-  # to 9arm's OpenAI-compatible gateway (set 2026-09-12) instead of the old
-  # OpenRouter fallback chain.
+  # NevNew (cheap default). model_name is what Open-WebUI displays and what
+  # n8n's llm-router calls. Multiple deployments under one model_name =
+  # one routing group; cost-based-routing picks cheapest-healthy first.
+  # Deployment 1: 9arm OpenAI-compatible gateway (primary, set 2026-09-12).
   - model_name: NevNew
     litellm_params:
       model: openai/qwen3.8-27b-fp8
@@ -14,11 +14,23 @@ model_list:
       id: qwen3-8-27b-fp8-9arm
       mode: chat
 
-  # NevNew-Pro: paid, kept as a distinct alias for clients that reference
-  # it directly. The 16384 max_tokens cap here is critical: without it,
-  # LiteLLM forwards the full context window and OpenRouter 402s with
-  # "requested 65536 tokens but can only afford 1120" (root cause of
-  # #41/#42/#43).
+  # Deployment 2 (same group): Groq qwen3.8-27b — cheap cross-provider
+  # fallback inside the group when 9arm 429/5xx/cooldowns.
+  - model_name: NevNew
+    litellm_params:
+      model: groq/qwen/qwen3-27b
+      api_key: os.environ/GROQ_API_KEY
+      max_tokens: 8192
+      rpm: 20
+    model_info:
+      id: qwen3-27b-groq
+      mode: chat
+
+  # NevNew-Pro: paid flagship, kept as a distinct alias for clients that
+  # reference it directly. The 16384 max_tokens cap here is critical:
+  # without it, LiteLLM forwards the full context window and OpenRouter
+  # 402s with "requested 65536 tokens but can only afford 1120" (root
+  # cause of #41/#42/#43).
   - model_name: NevNew-Pro
     litellm_params:
       model: openrouter/qwen/qwen3.8-max-0902
@@ -31,6 +43,57 @@ model_list:
       id: qwen3-8-max-pro
       mode: chat
 
+  # NevNew-Mini: OpenAI cheap lane via OpenRouter (no direct OPENAI_API_KEY
+  # in .env as of 2026-09-13; rides OPENROUTER_API_KEY until one exists).
+  # First fallback hop for NevNew; also the latency lane for Telegram.
+  - model_name: NevNew-Mini
+    litellm_params:
+      model: openrouter/openai/gpt-4o-mini
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      max_tokens: 4096
+      rpm: 30
+    model_info:
+      id: gpt-4o-mini-openrouter
+      mode: chat
+
+  # NevNew-Haiku: Anthropic cheap lane via OpenRouter (no direct
+  # ANTHROPIC_API_KEY in .env as of 2026-09-13). Anthropic prompt caching
+  # (cache_control breakpoints) passes through OpenRouter; LiteLLM tracks
+  # cache_read_input_tokens in spend logs. Swap to model:
+  # anthropic/claude-haiku-4-5 + api_key: os.environ/ANTHROPIC_API_KEY
+  # once a direct key exists.
+  - model_name: NevNew-Haiku
+    litellm_params:
+      model: openrouter/anthropic/claude-haiku-4.5
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      max_tokens: 4096
+      rpm: 20
+    model_info:
+      id: claude-3-5-haiku-openrouter
+      mode: chat
+
+  # EXTENSION POINT — opencode / generic OpenAI-compatible lane. Uncomment
+  # once OPENCODE_BASE_URL is known (key OPENCODE_ZEN_API_KEY exists):
+  # - model_name: NevNew-Code
+  #   litellm_params:
+  #     model: openai/<model-id>
+  #     api_base: os.environ/OPENCODE_BASE_URL
+  #     api_key: os.environ/OPENCODE_ZEN_API_KEY
+  #     max_tokens: 8192
+  #   model_info:
+  #     id: opencode-compat
+  #     mode: chat
+
+# Cross-group fallbacks on retriable errors (429/5xx/connection/timeout).
+# Cheap stays cheap (Mini -> Haiku -> NevNew-Pro last resort); flagship
+# degrades to cheap rather than failing (Pro -> NevNew -> Mini).
+fallbacks:
+  - NevNew: ["NevNew-Mini", "NevNew-Haiku"]
+  - NevNew-Mini: ["NevNew-Haiku", "NevNew"]
+  - NevNew-Haiku: ["NevNew-Mini", "NevNew"]
+  - NevNew-Pro: ["NevNew", "NevNew-Mini"]
 
 litellm_settings:
   drop_params: true
@@ -40,9 +103,23 @@ litellm_settings:
   max_budget: 15.0  # $15/month hard budget cap (only NevNew-Pro can hit it)
   budget_duration: "30d"
   callbacks: ["nevnew_persona.nevnew_persona_instance"]
+  # Prompt-caching response cache (Phase 1). Exact-prefix hits are served
+  # from Redis with $0 incremental spend. Anthropic cache_control
+  # breakpoints ride through untouched (provider-supported param, not
+  # dropped); OpenAI/9arm/Qwen lanes get automatic prefix caching when
+  # the llm-router keeps system+context prefix order stable.
+  cache: true
+  cache_params:
+    type: redis
+    host: redis
+    port: 6379
+    ttl: 3600
+    namespace: litellm-cache
 
 router_settings:
-  routing_strategy: simple-shuffle
+  # Cost-first (goal: save cost). Picks cheapest healthy deployment inside
+  # each model_name group; fallbacks above handle cross-group failover.
+  routing_strategy: cost-based-routing
   num_retries: 3
   retry_policy:
     RateLimitErrorRetries: 5

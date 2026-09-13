@@ -87,6 +87,10 @@ CLINE_TIMEOUT_SECONDS = 45
 
 CLAUDE_SONNET_SCRATCH_CWD = "/app/claude-scratch"
 CLAUDE_SONNET_TIMEOUT_SECONDS = 45
+# Fallback model. Defaults to "sonnet" (Anthropic account) for backward
+# compat, but the container env pins it to the same 9arm gateway model as
+# the primary (see docker-compose.yml) so the whole bot runs on one model.
+CLAUDE_FALLBACK_MODEL = os.environ.get("CLAUDE_FALLBACK_MODEL", "sonnet")
 
 os.makedirs(CLINE_SCRATCH_CWD, exist_ok=True)
 os.makedirs(CLAUDE_SONNET_SCRATCH_CWD, exist_ok=True)
@@ -185,23 +189,30 @@ async def _run_cline(prompt: str) -> tuple[str | None, bool]:
 
 
 async def _run_claude_sonnet(prompt: str) -> tuple[str | None, bool]:
-    """Run `prompt` through the `claude` CLI (Sonnet), as a fallback when
-    OpenCode Go is unavailable. Returns (text, had_tool_calls).
+    """Run `prompt` through the `claude` CLI, as a fallback when the cline
+    primary fails or is rejected. Returns (text, had_tool_calls).
 
-    Auth is CLAUDE_CODE_OAUTH_TOKEN (set in the container env — see
-    docker-compose.yml), NOT an API key, and NOT --bare: --bare only reads
-    ANTHROPIC_API_KEY/apiKeyHelper and never OAuth, which would silently
-    break auth here. --allowedTools "" plus --permission-mode manual is the
-    fail-closed backstop (no human present to approve anything headless).
+    The container env points the CLI at the 9arm gateway's Anthropic-format
+    endpoint (ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN, see
+    docker-compose.yml) running CLAUDE_FALLBACK_MODEL — by default the same
+    model as the primary, so the whole bot runs on one provider/model with
+    no separate account/quota. --allowedTools "" plus --permission-mode
+    manual is the fail-closed backstop (no human present to approve
+    anything headless).
     """
     cmd = [
         "claude", "-p", prompt,
-        "--model", "sonnet",
+        "--model", CLAUDE_FALLBACK_MODEL,
         "--system-prompt", NEVNEW_SYSTEM_PROMPT,
         "--output-format", "json",
         "--allowedTools", "",
         "--permission-mode", "manual",
         "--add-dir", CLAUDE_SONNET_SCRATCH_CWD,
+        # The 9arm gateway (vllm backend) rejects the CLI's default
+        # reasoning effort "high" — it only accepts xhigh/medium/low
+        # (400 "Unexpected reasoning effort high"). medium keeps latency
+        # down on the fallback path.
+        "--effort", "medium",
     ]
     try:
         proc = await asyncio.create_subprocess_exec(
