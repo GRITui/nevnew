@@ -27,7 +27,7 @@ import secrets
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
@@ -74,7 +74,7 @@ app = FastAPI(
 )
 
 
-def _store(request: Any) -> MemoryStore:
+def _store(request: Request) -> MemoryStore:
     store = request.app.state.store
     if store is None:  # defensive; lifespan always sets it before serving
         raise HTTPException(status_code=503, detail="memory store not initialized")
@@ -157,7 +157,7 @@ async def health() -> Dict[str, Any]:
 
 
 @app.get("/ready", tags=["ops"])
-async def ready(request: Any = None) -> JSONResponse:
+async def ready(request: Request) -> JSONResponse:
     store: Optional[MemoryStore] = getattr(app.state, "store", None)
     checks = await store.health_checks() if store else {"qdrant": "unknown", "embedder": "unknown"}
     ready_ok = all(value == "ok" for value in checks.values())
@@ -173,7 +173,7 @@ async def ready(request: Any = None) -> JSONResponse:
     tags=["memories"],
     dependencies=[Depends(_require_api_key)],
 )
-async def add_memories(user_id: str, body: AddMemoriesRequest, request: Any = None) -> Dict[str, Any]:
+async def add_memories(user_id: str, body: AddMemoriesRequest, request: Request) -> Dict[str, Any]:
     uid = _user_id(user_id)
     store = _store(request)
     try:
@@ -194,10 +194,10 @@ async def add_memories(user_id: str, body: AddMemoriesRequest, request: Any = No
     dependencies=[Depends(_require_api_key)],
 )
 async def search_memories(
+    request: Request,
     user_id: str,
     query: str = Query(min_length=1, max_length=2000),
     limit: int = Query(default=SETTINGS.default_search_top_k, ge=1, le=50),
-    request: Any = None,
 ) -> Dict[str, Any]:
     uid = _user_id(user_id)
     store = _store(request)
@@ -212,9 +212,9 @@ async def search_memories(
     dependencies=[Depends(_require_api_key)],
 )
 async def list_memories(
+    request: Request,
     user_id: str,
     limit: int = Query(default=100, ge=1, le=200),
-    request: Any = None,
 ) -> Dict[str, Any]:
     uid = _user_id(user_id)
     store = _store(request)
@@ -235,7 +235,7 @@ async def list_memories(
     tags=["memories"],
     dependencies=[Depends(_require_api_key)],
 )
-async def get_memory(user_id: str, memory_id: str, request: Any = None) -> Dict[str, Any]:
+async def get_memory(user_id: str, memory_id: str, request: Request) -> Dict[str, Any]:
     uid = _user_id(user_id)
     store = _store(request)
     try:
@@ -252,7 +252,7 @@ async def get_memory(user_id: str, memory_id: str, request: Any = None) -> Dict[
     tags=["memories"],
     dependencies=[Depends(_require_api_key)],
 )
-async def update_memory(user_id: str, memory_id: str, body: UpdateMemoryRequest, request: Any = None) -> Dict[str, Any]:
+async def update_memory(user_id: str, memory_id: str, body: UpdateMemoryRequest, request: Request) -> Dict[str, Any]:
     uid = _user_id(user_id)
     store = _store(request)
     try:
@@ -268,7 +268,7 @@ async def update_memory(user_id: str, memory_id: str, body: UpdateMemoryRequest,
     tags=["memories"],
     dependencies=[Depends(_require_api_key)],
 )
-async def delete_memory(user_id: str, memory_id: str, request: Any = None) -> Dict[str, str]:
+async def delete_memory(user_id: str, memory_id: str, request: Request) -> Dict[str, str]:
     uid = _user_id(user_id)
     store = _store(request)
     try:
@@ -283,7 +283,7 @@ async def delete_memory(user_id: str, memory_id: str, request: Any = None) -> Di
     tags=["memories"],
     dependencies=[Depends(_require_api_key)],
 )
-async def delete_all_memories(user_id: str, request: Any = None) -> Dict[str, Any]:
+async def delete_all_memories(user_id: str, request: Request) -> Dict[str, Any]:
     uid = _user_id(user_id)
     store = _store(request)
     try:
@@ -298,7 +298,7 @@ async def delete_all_memories(user_id: str, request: Any = None) -> Dict[str, An
     tags=["memories"],
     dependencies=[Depends(_require_api_key)],
 )
-async def reset_user(user_id: str, request: Any = None) -> Dict[str, Any]:
+async def reset_user(user_id: str, request: Request) -> Dict[str, Any]:
     uid = _user_id(user_id)
     store = _store(request)
     try:
@@ -309,7 +309,7 @@ async def reset_user(user_id: str, request: Any = None) -> Dict[str, Any]:
 
 
 @app.get("/users", tags=["memories"], dependencies=[Depends(_require_api_key)])
-async def list_users(request: Any = None) -> Dict[str, Any]:
+async def list_users(request: Request) -> Dict[str, Any]:
     store = _store(request)
     try:
         users = await store.list_users()

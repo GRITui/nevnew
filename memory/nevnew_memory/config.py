@@ -76,9 +76,8 @@ class MemorySettings:
 
     collection_prefix: str
 
-    llm_model: str
-    llm_base_url: str
-    llm_api_key: str
+    groq_model: str
+    groq_api_key: str
     llm_temperature: float
     llm_max_tokens: int
 
@@ -125,6 +124,8 @@ class MemorySettings:
         # private, local stack — default it off (still overridable).
         os.environ.setdefault("MEM0_TELEMETRY", "false")
 
+        return cls._load_validated()
+
     @classmethod
     def _load_validated(cls) -> "MemorySettings":
         qdrant_host = _env_str("QDRANT_HOST", "qdrant")
@@ -142,28 +143,25 @@ class MemorySettings:
         if not collection_prefix[0].isalpha():
             raise RuntimeError("MEM0_COLLECTION_PREFIX must start with a letter")
 
-        llm_model = _env_str("MEM0_LLM_MODEL", "NevNew")
-        llm_base_url = _env_str("MEM0_LLM_BASE_URL", "http://litellm:4000/v1")
-        llm_api_key = _env_str("MEM0_LLM_API_KEY") or _env_str("LITELLM_MASTER_KEY")
-        if not llm_api_key:
+        groq_model = _env_str("MEM0_GROQ_MODEL", "qwen/qwen3.8-27b")
+        groq_api_key = _env_str("GROQ_API_KEY")
+        if not groq_api_key:
             raise RuntimeError(
-                "MEM0_LLM_API_KEY (or LITELLM_MASTER_KEY) is required — mem0 "
-                "uses the LiteLLM proxy for memory extraction and this "
-                "authenticates against it."
+                "GROQ_API_KEY is required — the memory service calls Groq "
+                "directly (native provider) for fact extraction."
             )
         llm_temperature = _env_float("MEM0_LLM_TEMPERATURE", 0.1)
         if not 0.0 <= llm_temperature <= 2.0:
             raise RuntimeError("MEM0_LLM_TEMPERATURE must be within 0.0-2.0")
-        llm_max_tokens = _env_int("MEM0_LLM_MAX_TOKENS", 2000)
+        llm_max_tokens = _env_int("MEM0_LLM_MAX_TOKENS", 600)
         if llm_max_tokens < 100:
             raise RuntimeError("MEM0_LLM_MAX_TOKENS must be >= 100")
         return cls._load_embedder(
             qdrant_host=qdrant_host,
             qdrant_port=qdrant_port,
             collection_prefix=collection_prefix,
-            llm_model=llm_model,
-            llm_base_url=llm_base_url,
-            llm_api_key=llm_api_key,
+            groq_model=groq_model,
+            groq_api_key=groq_api_key,
             llm_temperature=llm_temperature,
             llm_max_tokens=llm_max_tokens,
         )
@@ -174,9 +172,8 @@ class MemorySettings:
         qdrant_host: str,
         qdrant_port: int,
         collection_prefix: str,
-        llm_model: str,
-        llm_base_url: str,
-        llm_api_key: str,
+        groq_model: str,
+        groq_api_key: str,
         llm_temperature: float,
         llm_max_tokens: int,
     ) -> "MemorySettings":
@@ -240,9 +237,8 @@ class MemorySettings:
             qdrant_api_key=_env_str("QDRANT_API_KEY"),
             qdrant_on_disk=_env_bool("MEM0_QDRANT_ON_DISK", False),
             collection_prefix=collection_prefix,
-            llm_model=llm_model,
-            llm_base_url=llm_base_url,
-            llm_api_key=llm_api_key,
+            groq_model=groq_model,
+            groq_api_key=groq_api_key,
             llm_temperature=llm_temperature,
             llm_max_tokens=llm_max_tokens,
             embedder_provider=embedder_provider,

@@ -19,9 +19,9 @@ WORKDIR /app
 # aarch64 linux builds).
 RUN ARCH=$(uname -m) \
     && if [ "$ARCH" = "x86_64" ]; then \
-        pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu; \
+        pip install --no-cache-dir torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu; \
     else \
-        pip install --no-cache-dir torch; \
+        pip install --no-cache-dir torch==2.7.1; \
     fi
 
 COPY requirements.txt .

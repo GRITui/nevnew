@@ -50,7 +50,7 @@ if [ ! -f "$PROJECT_ROOT/.env" ]; then
     cp "$PROJECT_ROOT/.env.example" "$PROJECT_ROOT/.env"
     chmod 600 "$PROJECT_ROOT/.env"
     echo ""
-    echo "!!! IMPORTANT: edit .env now and set OPENROUTER_API_KEY and LITELLM_MASTER_KEY"
+    echo "!!! IMPORTANT: edit .env now and set NINEARM_API_KEY and LITELLM_MASTER_KEY"
     echo "!!! before continuing, otherwise the LiteLLM proxy will fail to authenticate."
     echo ""
     read -r -p "Press Enter once .env is filled in, or Ctrl+C to abort and edit it first... "
@@ -77,9 +77,8 @@ set -a
 source "$PROJECT_ROOT/.env"
 set +a
 
-if [ -z "${OPENROUTER_API_KEY:-}" ] || [ "$OPENROUTER_API_KEY" = "your-openrouter-api-key-here" ]; then
-  echo "ERROR: OPENROUTER_API_KEY is not set in .env. Both qwen3.8-max (chat)"
-  echo "       and offload_to_minimax.sh (engineering offload) need it." >&2
+if [ -z "${NINEARM_API_KEY:-}" ] || [ "$NINEARM_API_KEY" = "your-9arm-api-key-here" ]; then
+  echo "ERROR: NINEARM_API_KEY is not set in .env. NevNew's chat engine needs it." >&2
   exit 1
 fi
 
