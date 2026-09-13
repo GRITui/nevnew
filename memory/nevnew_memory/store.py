@@ -173,12 +173,11 @@ class MemoryStore:
 
         await self.ping()
         logger.info(
-            "MemoryStore initialized (qdrant=%s:%d, prefix=%r, llm=%s @ %s).",
+            "MemoryStore initialized (qdrant=%s:%d, prefix=%r, groq-llm=%s).",
             self._settings.qdrant_host,
             self._settings.qdrant_port,
             self._settings.collection_prefix,
-            self._settings.llm_model,
-            self._settings.llm_base_url,
+            self._settings.groq_model,
         )
 
     def _load_shared_embedder(self) -> Any:
@@ -259,11 +258,10 @@ class MemoryStore:
             vector_config["api_key"] = settings.qdrant_api_key
 
         llm_config: Dict[str, Any] = {
-            "provider": "openai",
+            "provider": "groq",
             "config": {
-                "model": settings.llm_model,
-                "api_key": settings.llm_api_key,
-                "openai_base_url": settings.llm_base_url,
+                "model": settings.groq_model,
+                "api_key": settings.groq_api_key,
                 "temperature": settings.llm_temperature,
                 "max_tokens": settings.llm_max_tokens,
             },
@@ -324,20 +322,56 @@ class MemoryStore:
         extraction over the content and dedupes/updates against what is
         already stored. Returns the normalized per-fact results
         ({"id", "memory", "event": ADD|UPDATE|NONE}).
+
+        infer=False fast path: mem0 skips LLM extraction entirely and
+        stores each message verbatim. Used automatically as a fallback when
+        extraction fails (LLM down / rate-limited), so a memory write NEVER
+        hard-fails — retrieval/embeddings still work on the raw text.
         """
         memory = await self._memory_for(user_id)
         try:
             result = await memory.add(messages, user_id=user_id, metadata=metadata, infer=True)
-        except ValueError as exc:
-            raise MemoryValidationError(f"mem0 rejected the add payload: {exc}") from exc
         except Exception as exc:
-            raise MemoryBackendError(f"memory add failed for user {user_id!r}: {exc}") from exc
+            logger.warning(
+                "LLM extraction raised for user_id=%s, storing verbatim: %s", user_id, exc
+            )
+            result = None
+        items = [_normalize_memory(item) for item in _result_items(result)] if result else []
+        if items:
+            logger.info(
+                "Memory add for user_id=%s: %d fact(s) %s",
+                user_id,
+                len(items),
+                [item.get("event", "?") for item in items],
+            )
+            return items
+        # Extraction produced nothing (mem0 logs LLM errors and returns []
+        # instead of raising, e.g. Groq 413 on its ~8k-token prompt).
+        # Verbatim fallback: mem0's infer=False path iterates `messages` as
+        # a LIST, so normalize a plain string first.
+        logger.warning(
+            "LLM extraction yielded 0 facts for user_id=%s, storing verbatim", user_id
+        )
+        verbatim = (
+            messages
+            if isinstance(messages, list)
+            else [{"role": "user", "content": str(messages)}]
+        )
+        try:
+            result = await memory.add(
+                verbatim, user_id=user_id, metadata=metadata, infer=False
+            )
+        except ValueError as vexc:
+            raise MemoryValidationError(f"mem0 rejected the add payload: {vexc}") from vexc
+        except Exception as exc2:
+            raise MemoryBackendError(
+                f"memory add failed for user {user_id!r}: {exc2}"
+            ) from exc2
         items = [_normalize_memory(item) for item in _result_items(result)]
         logger.info(
-            "Memory add for user_id=%s: %d fact(s) %s",
+            "Memory add (verbatim fallback) for user_id=%s: %d fact(s)",
             user_id,
             len(items),
-            [item.get("event", "?") for item in items],
         )
         return items
 

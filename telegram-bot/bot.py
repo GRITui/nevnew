@@ -1,23 +1,23 @@
 """Telegram bot: NevNew's MVP mobile/push channel (issue #11).
 
-Round-trip: Telegram message -> `opencode run` (OpenCode Go account quota)
--> reply. This bypasses LiteLLM/OpenRouter entirely for the chat path
-(2026-09-09, see NevNew project memory) since OpenRouter's shared free-tier
-daily cap and the old cline-pass fallback can both go down at once. Persona
-(NEVNEW_SYSTEM_PROMPT, from callbacks/nevnew_persona_prompt.py) is prepended
-into the prompt text for every backend below, since none of them are routed
-through LiteLLM's own persona callback (callbacks/nevnew_persona.py) anymore.
+Round-trip: Telegram message -> `cline` CLI (9arm gateway / qwen3.8-27b-fp8,
+the same provider+model as the Cline session this bot mirrors) -> reply.
+This bypasses LiteLLM/OpenRouter entirely for the chat path. Persona
+(NEVNEW_SYSTEM_PROMPT, from callbacks/nevnew_persona_prompt.py) is passed to
+the chat backend via cline's -s system-prompt flag (and prepended into the
+vision path's system prompt), since the chat path is not routed through
+LiteLLM's own persona callback (callbacks/nevnew_persona.py).
 
-If OpenCode Go fails or its output is rejected by the safety gate, falls
-back to the `claude` CLI running Sonnet (a fully separate account/quota,
+If Cline fails or its output is rejected by the safety gate, falls back to
+the `claude` CLI running Sonnet (a fully separate account/quota,
 authenticated via CLAUDE_CODE_OAUTH_TOKEN — see _run_claude_sonnet()).
-LiteLLM/cline are no longer in this chat path at all; LiteLLM still serves
-Open-WebUI directly and is untouched.
+LiteLLM still serves Open-WebUI directly and is untouched.
 
 Both backends are full agent CLIs, not chat APIs, so both are run
-locked-down (isolated scratch cwd, no tool approval) and their raw output
-goes through a fail-closed safety gate before ever reaching the user — see
-_run_opencode(), _run_claude_sonnet(), and _gate_agent_reply() below.
+locked-down (an isolated scratch cwd they can't escape, no tool approval)
+and their raw output goes through a fail-closed safety gate before ever
+reaching the user — see _run_cline(), _run_claude_sonnet(), and
+_gate_agent_reply() below.
 """
 
 import asyncio
@@ -52,7 +52,7 @@ TROUBLE_REPLY = "⚠️ Having some technical trouble reaching NevNew right now 
 VISION_TROUBLE_REPLY = "⚠️ Couldn't read that image right now — try again in a bit."
 MAX_TELEGRAM_MESSAGE_LENGTH = 4000
 
-# Image path bypasses the opencode/claude agent CLIs entirely (see module
+# Image path bypasses the cline/claude agent CLIs entirely (see module
 # docstring) — neither has a non-tool-call way to ingest an arbitrary image
 # under this bot's calling convention, and the chat gate below rejects any
 # reply involving a tool call. Instead this is a single deterministic
@@ -70,58 +70,86 @@ VISION_SYSTEM_SUFFIX = (
 # Both backends below are full agent CLIs, not chat APIs, so both run
 # locked down: an isolated scratch cwd they can't escape, no tool approval,
 # and the raw output goes through _gate_agent_reply() before ever reaching
-# the user. Only the latest message text is sent (not full history) —
-# matches the old cline-fallback pattern this replaces.
-OPENCODE_MODEL = os.environ.get("OPENCODE_MODEL", "opencode-go/glm-5.3")
-OPENCODE_SCRATCH_CWD = "/app/opencode-scratch"
-OPENCODE_TIMEOUT_SECONDS = 45
+# the user. Only the latest message text is sent (not full history).
+#
+# Primary is the Cline CLI, pinned to the same provider+model as the Cline
+# session this bot mirrors: the 9arm OpenAI-compatible gateway
+# (https://gateway.9arm.co/v1) serving qwen3.8-27b-fp8. The provider's
+# baseUrl/model live in the baked CLINE_CONFIG_DIR providers.json (see
+# Dockerfile); the API key is NINEARM_API_KEY, passed at runtime via -k from
+# the container env (env_file: .env) so no secret is baked into the image.
+NINEARM_API_KEY = os.environ.get("NINEARM_API_KEY", "")
+CLINE_PROVIDER = os.environ.get("CLINE_PROVIDER", "openai-compatible")
+CLINE_MODEL = os.environ.get("CLINE_MODEL", "qwen3.8-27b-fp8")
+CLINE_CONFIG_DIR = os.environ.get("CLINE_CONFIG_DIR", "/app/cline-config")
+CLINE_SCRATCH_CWD = "/app/cline-scratch"
+CLINE_TIMEOUT_SECONDS = 45
 
 CLAUDE_SONNET_SCRATCH_CWD = "/app/claude-scratch"
 CLAUDE_SONNET_TIMEOUT_SECONDS = 45
 
-os.makedirs(OPENCODE_SCRATCH_CWD, exist_ok=True)
+os.makedirs(CLINE_SCRATCH_CWD, exist_ok=True)
 os.makedirs(CLAUDE_SONNET_SCRATCH_CWD, exist_ok=True)
 
 
-async def _run_opencode(prompt: str) -> tuple[str | None, bool]:
-    """Run `prompt` through `opencode run` (OpenCode Go quota).
+async def _run_cline(prompt: str) -> tuple[str | None, bool]:
+    """Run `prompt` through the `cline` CLI (9arm gateway / qwen3.8-27b-fp8).
 
-    Returns (text, had_tool_calls). No --auto flag: opencode can still
-    execute read-only tools, but --dir is the isolated scratch cwd so it
-    can only ever touch that, never the bot's own files — and the gate
-    below rejects the reply outright if ANY tool call was attempted,
-    sandboxed or not.
+    Returns (text, had_tool_calls). Cline is a full agent CLI, so it runs
+    locked down: -c pins it to an isolated scratch cwd it can only touch,
+    and the gate below rejects the reply outright if ANY tool call was
+    attempted (read from the iteration_end hadToolCalls/toolCallCount events
+    in cline's --json stream). Auth is NINEARM_API_KEY passed via -k; the
+    provider's baseUrl/model come from the baked CLINE_CONFIG_DIR
+    providers.json. The persona is passed as the -s system prompt.
     """
-    stdin_payload = f"{NEVNEW_SYSTEM_PROMPT}\n\n---\n\n{prompt}"
+    if not NINEARM_API_KEY:
+        logger.error("NINEARM_API_KEY not set — cannot run cline primary")
+        return None, False
+
+    # cline's CLI treats a whitespace-free positional as a potential subcommand
+    # (e.g. "Hi" -> "Unknown command or unquoted prompt: Hi"). Guarantee the
+    # prompt is parsed as a prompt by ensuring it contains whitespace.
+    prompt_arg = prompt if any(c.isspace() for c in prompt) else f" {prompt}"
+
     cmd = [
-        "opencode", "run",
-        "--dir", OPENCODE_SCRATCH_CWD,
-        "-m", OPENCODE_MODEL,
-        "--format", "json",
+        "cline",
+        "--config", CLINE_CONFIG_DIR,
+        "--data-dir", f"{CLINE_CONFIG_DIR}/data",
+        "--json",
+        "-P", CLINE_PROVIDER,
+        "-k", NINEARM_API_KEY,
+        "-m", CLINE_MODEL,
+        "-s", NEVNEW_SYSTEM_PROMPT,
+        "-c", CLINE_SCRATCH_CWD,
+        "-t", str(CLINE_TIMEOUT_SECONDS),
+        prompt_arg,
     ]
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdin=asyncio.subprocess.PIPE,
+            cwd=CLINE_SCRATCH_CWD,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=stdin_payload.encode()),
-            timeout=OPENCODE_TIMEOUT_SECONDS + 10,
+            proc.communicate(),
+            timeout=CLINE_TIMEOUT_SECONDS + 10,
         )
     except (asyncio.TimeoutError, OSError) as exc:
-        logger.error("opencode primary failed to run: %s", exc)
+        logger.error("cline primary failed to run: %s", exc)
         return None, False
 
     if proc.returncode != 0:
         logger.error(
-            "opencode primary exited %s: %s", proc.returncode, stderr.decode(errors="replace")[-2000:]
+            "cline primary exited %s: %s", proc.returncode, stderr.decode(errors="replace")[-2000:]
         )
         return None, False
 
-    text_parts = []
     had_tool_calls = False
+    run_result_text = None
+    run_result_finish = None
+    done_text = None
     for line in stdout.decode(errors="replace").splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -131,14 +159,29 @@ async def _run_opencode(prompt: str) -> tuple[str | None, bool]:
         except json.JSONDecodeError:
             continue
         etype = event.get("type", "")
-        part = event.get("part") or event.get("properties", {}).get("part", {})
-        ptype = part.get("type") if isinstance(part, dict) else None
-        if ptype == "text":
-            text_parts.append(part.get("text", ""))
-        elif ptype == "tool" or "tool" in etype.lower():
+        if etype == "run_result":
+            run_result_text = event.get("text")
+            run_result_finish = event.get("finishReason")
+            continue
+        if etype != "agent_event":
+            continue
+        inner = event.get("event") or {}
+        itype = inner.get("type", "")
+        if itype == "iteration_end":
+            if inner.get("hadToolCalls") or inner.get("toolCallCount", 0) > 0:
+                had_tool_calls = True
+        elif itype == "done":
+            done_text = inner.get("text")
+        elif itype in ("content_start", "content_end") and inner.get("contentType") == "tool":
+            # Defensive: a tool-typed content event also means a tool was used.
             had_tool_calls = True
 
-    return "".join(text_parts), had_tool_calls
+    if run_result_finish == "error":
+        logger.error("cline primary returned an error result: %s", (run_result_text or "")[:500])
+        return None, False
+
+    final_text = run_result_text if run_result_text is not None else done_text
+    return final_text, had_tool_calls
 
 
 async def _run_claude_sonnet(prompt: str) -> tuple[str | None, bool]:
@@ -300,16 +343,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     history.append({"role": "user", "content": update.message.text})
     history[:] = history[-MAX_HISTORY_MESSAGES:]
 
-    raw_text, had_tool_calls = await _run_opencode(update.message.text)
-    reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="opencode primary")
+    raw_text, had_tool_calls = await _run_cline(update.message.text)
+    reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="cline primary")
 
     if reply_text is None:
-        logger.warning("OpenCode Go primary failed/rejected — falling back to claude sonnet for user_id=%s", user.id)
+        logger.warning("Cline primary failed/rejected — falling back to claude sonnet for user_id=%s", user.id)
         raw_text, had_tool_calls = await _run_claude_sonnet(update.message.text)
         reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="claude sonnet fallback")
 
     if reply_text is None:
-        logger.error("Both opencode primary and claude sonnet fallback failed for user_id=%s", user.id)
+        logger.error("Both cline primary and claude sonnet fallback failed for user_id=%s", user.id)
         # Roll back the user turn we just recorded — it never got a reply,
         # so keeping it would desync history from what the model actually saw.
         history.pop()
@@ -359,7 +402,7 @@ def main() -> None:
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_photo))
-    logger.info("NevNew Telegram bot starting (owner_id=%s, primary=opencode/%s)", OWNER_ID, OPENCODE_MODEL)
+    logger.info("NevNew Telegram bot starting (owner_id=%s, primary=cline/%s via %s)", OWNER_ID, CLINE_MODEL, CLINE_PROVIDER)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

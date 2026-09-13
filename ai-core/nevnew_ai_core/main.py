@@ -185,9 +185,9 @@ async def _extract_memories(
 
 @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(_require_api_key)])
 async def chat(
-    chat_request: ChatRequest,
-    background_tasks: BackgroundTasks,
     request: Request,
+    chat_request: ChatRequest,
+    background_tasks: BackgroundTasks
 ) -> ChatResponse:
     pipeline = _pipeline(request)
     try:
@@ -343,8 +343,8 @@ async def memory_add(user_id: str, request: Request) -> JSONResponse:
     dependencies=[Depends(_require_api_key)],
 )
 async def memory_search(
-    user_id: str,
     request: Request,
+    user_id: str,
     query: str = Query(min_length=1, max_length=2000),
     limit: int = Query(default=5, ge=1, le=50),
 ) -> JSONResponse:
@@ -362,7 +362,7 @@ async def memory_search(
 
 
 @app.get("/memory/users/{user_id}/memories", dependencies=[Depends(_require_api_key)])
-async def memory_list(user_id: str, request: Request, limit: int = Query(default=100, ge=1, le=200)) -> JSONResponse:
+async def memory_list(request: Request, user_id: str, limit: int = Query(default=100, ge=1, le=200)) -> JSONResponse:
     client = _memory_client(request)
     try:
         return _relay(

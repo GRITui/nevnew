@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "lastUsedProvider": "openai-compatible",
+  "modes": {},
+  "providers": {
+    "openai-compatible": {
+      "settings": {
+        "provider": "openai-compatible",
+        "model": "qwen3.8-27b-fp8",
+        "baseUrl": "https://gateway.9arm.co/v1"
+      },
+      "updatedAt": "2026-09-12T15:44:59.134Z",
+      "tokenSource": "manual"
+    }
+  }
+}

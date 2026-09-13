@@ -12,6 +12,12 @@ mem0ai==2.0.0
 # wheels would otherwise balloon the image by ~2 GB.
 sentence-transformers>=3.0,<7.0
 
+# Direct Groq SDK for the memory-extraction LLM path: mem0's OpenAI LLM
+# provider hard-routes to OpenRouter when OPENROUTER_API_KEY is set and
+# LiteLLM-proxy routing breaks on mem0's ~8k-token extraction prompt
+# (Groq ITPM 7000 on qwen3.8-27b). Native provider keeps prompts small.
+groq>=0.20,<1.0
+
 fastapi>=0.110,<1.0
 uvicorn[standard]>=0.29,<1.0
 httpx>=0.27,<1.0

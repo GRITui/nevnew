@@ -1,6 +1,8 @@
 .env
 .env.save
 .env.local
+.env.bak.*
 *.log
 .DS_Store
+__pycache__/
 scripts/.error_watcher_state.json

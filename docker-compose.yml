@@ -30,6 +30,7 @@ services:
     env_file:
       - .env
     environment:
+      - NINEARM_API_KEY=${NINEARM_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
       - DATABASE_URL=postgresql://litellm:litellm@postgres:5432/litellm
@@ -141,13 +142,86 @@ services:
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_OWNER_ID=${TELEGRAM_OWNER_ID}
+      # Cline primary backend: the 9arm gateway key (same provider/model as
+      # the Cline session). Passed to the cline CLI via -k at runtime.
+      - NINEARM_API_KEY=${NINEARM_API_KEY}
+      # Sonnet fallback backend (separate account/quota).
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
-      # OpenCode Go auth (auth.json has both `opencode` and `opencode-go`
-      # profiles) — container HOME is /root, so this matches opencode's
-      # default XDG_DATA_HOME/opencode lookup path.
-      - ${HOME}/.local/share/opencode/auth.json:/root/.local/share/opencode/auth.json:ro
+    networks:
+      - newnew-net
+
+  # Long-term memory (mem0 + Qdrant, per-user collections). See
+  # memory/compose-snippet.yml. Do NOT add `env_file: .env` here — mem0's
+  # OpenAI LLM provider auto-routes to OpenRouter when OPENROUTER_API_KEY is
+  # present, bypassing the LiteLLM proxy (and its budget cap).
+  memory:
+    build: ./memory
+    container_name: newnew-memory
+    restart: unless-stopped
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - MEM0_GROQ_MODEL=qwen/qwen3.8-27b
+      # GROQ_API_KEY comes from .env so the memory image sees it (the
+      # service deliberately does NOT use env_file: mem0's OpenAI-LLM
+      # auto-route would leak extraction to OpenRouter otherwise).
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - MEMORY_API_KEY=${MEMORY_API_KEY}
+      - MEM0_TELEMETRY=false
+    volumes:
+      # SQLite history (mem0) + the downloaded embedding model cache.
+      - nevnew_memory_data:/data
+    ports:
+      # Ops/debug access from the host; in-network callers use
+      # http://memory:8000 (no port publish needed).
+      - "8011:8000"
+    depends_on:
+      - qdrant
+      - litellm
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    networks:
+      - newnew-net
+
+  # AI Core chat harness: persona + memories + tools -> model -> reply.
+  # The single API surface for channels (telegram-bot, n8n). See
+  # ai-core/compose-snippet.yml.
+  ai-core:
+    build: ./ai-core
+    container_name: newnew-ai-core
+    restart: unless-stopped
+    environment:
+      - LITELLM_BASE_URL=http://litellm:4000/v1
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - NEVNEW_MODEL_NAME=NevNew
+      - MEMORY_BASE_URL=http://memory:8000
+      - MEMORY_API_KEY=${MEMORY_API_KEY}
+      - MCPO_BASE_URL=http://mcpo:8000
+      - MCPO_API_KEY=${MCPO_API_KEY}
+      - AICORE_API_KEY=${AICORE_API_KEY}
+    volumes:
+      - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
+    ports:
+      # Host access for curl/debugging; in-network callers use
+      # http://ai-core:8000.
+      - "8010:8000"
+    depends_on:
+      litellm:
+        condition: service_healthy
+      memory:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
     networks:
       - newnew-net
 
@@ -158,6 +232,14 @@ services:
     command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     env_file:
       - .env
+    networks:
+      - newnew-net
+
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    container_name: newnew-cloudflared-quick
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://newnew-open-webui:8080
     networks:
       - newnew-net
 
@@ -176,3 +258,5 @@ volumes:
     name: qdrant_storage
   n8n_data:
     name: n8n_data
+  nevnew_memory_data:
+    name: nevnew_memory_data
