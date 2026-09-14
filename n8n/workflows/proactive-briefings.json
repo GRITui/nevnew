@@ -95,9 +95,10 @@
   }
  },
  "settings": {
-  "executionOrder": "v1"
+  "executionOrder": "v1",
+  "notes": "SUPERSEDED 2026-09-14: triggers moved to system cron (nevnew_briefing_brief/nudge) because n8n ExecuteCommand-spawned Python hangs at interpreter startup in the task-runner sandbox (see Sprint 8 log). Kept for reference; DO NOT activate or briefings double-fire."
  },
- "active": true,
+ "active": false,
  "tags": [],
  "id": "a64acad4-b176-4d82-84da-6ba7741e9fdf"
 }
