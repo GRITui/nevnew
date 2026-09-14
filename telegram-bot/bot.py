@@ -92,8 +92,42 @@ CLAUDE_SONNET_TIMEOUT_SECONDS = 45
 # the primary (see docker-compose.yml) so the whole bot runs on one model.
 CLAUDE_FALLBACK_MODEL = os.environ.get("CLAUDE_FALLBACK_MODEL", "sonnet")
 
+# One Brain prep (#70): ai-core route plumbing. NOT wired into any handler
+# this sprint (cutover is future work) — USE_AI_CORE=false keeps the
+# current cline-primary CLI path. ai-core already serves POST /chat with
+# persona + memory retrieval + extraction (see ai-core/nevnew_ai_core/).
+AICORE_BASE_URL = os.environ.get("AICORE_BASE_URL", "http://ai-core:8000")
+AICORE_API_KEY = os.environ.get("AICORE_API_KEY", "")
+USE_AI_CORE = os.environ.get("USE_AI_CORE", "false").lower() == "true"
+AICORE_TIMEOUT_SECONDS = 60
+
 os.makedirs(CLINE_SCRATCH_CWD, exist_ok=True)
 os.makedirs(CLAUDE_SONNET_SCRATCH_CWD, exist_ok=True)
+
+
+async def _run_aicore(messages: list[dict]) -> str | None:
+    """POST `messages` to ai-core /chat (One Brain prep, issue #70).
+
+    Returns the reply string, or None on any failure (logs, never raises).
+    Prep only — no handler calls this yet.
+    """
+    try:
+        headers = {"Authorization": f"Bearer {AICORE_API_KEY}"} if AICORE_API_KEY else {}
+        async with httpx.AsyncClient(timeout=AICORE_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"{AICORE_BASE_URL}/chat",
+                json={
+                    "user_id": f"telegram:{OWNER_ID}",
+                    "messages": messages,
+                    "channel": "telegram",
+                },
+                headers=headers,
+            )
+            response.raise_for_status()
+            return response.json().get("reply")
+    except Exception as exc:  # noqa: BLE001 — prep helper must never raise
+        logger.warning("ai-core chat failed: %s", exc)
+        return None
 
 
 async def _run_cline(prompt: str) -> tuple[str | None, bool]:
