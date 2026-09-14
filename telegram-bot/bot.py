@@ -101,6 +101,22 @@ AICORE_API_KEY = os.environ.get("AICORE_API_KEY", "")
 USE_AI_CORE = os.environ.get("USE_AI_CORE", "false").lower() == "true"
 AICORE_TIMEOUT_SECONDS = 60
 
+# Voice loop (issue #61): STT via Groq Whisper (OpenAI-compatible
+# /audio/transcriptions, GROQ_API_KEY already in .env), TTS via gTTS
+# (free, Thai-capable; swap seam for an OpenAI-compatible Thai TTS when
+# one is available — see _run_tts). Voice notes arrive as OGG/Opus;
+# replies go back as MP3 audio messages (OGG voice-bubble upgrade later).
+VOICE_ENABLED = os.environ.get("VOICE_ENABLED", "true").lower() == "true"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_STT_URL = os.environ.get("GROQ_STT_URL", "https://api.groq.com/openai/v1/audio/transcriptions")
+GROQ_STT_MODEL = os.environ.get("GROQ_STT_MODEL", "whisper-large-v3-turbo")
+STT_TIMEOUT_SECONDS = 60
+TTS_LANG = os.environ.get("TTS_LANG", "th")
+TTS_MAX_CHARS = 500
+
+VOICE_TROUBLE_REPLY = "⚠️ Couldn't hear that voice note — try again or send text."
+TTS_FALLBACK_PREFIX = "🔊 Voice reply failed — here it is in text:\n\n"
+
 os.makedirs(CLINE_SCRATCH_CWD, exist_ok=True)
 os.makedirs(CLAUDE_SONNET_SCRATCH_CWD, exist_ok=True)
 
@@ -414,32 +430,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     history.append({"role": "user", "content": update.message.text})
     history[:] = history[-MAX_HISTORY_MESSAGES:]
 
-    reply_text = None
-    if USE_AI_CORE:
-        # One Brain primary (#70): resident ai-core service (persona +
-        # mem0 retrieval + tools + background extraction), ~1.3s typical
-        # (#71). Typing indicator while generating; CLI path below stays
-        # as the fallback tier.
-        try:
-            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-        except Exception as exc:  # noqa: BLE001 — cosmetic, never block
-            logger.debug("typing indicator failed: %s", exc)
-        raw_text = await _run_aicore(history, f"telegram:{user.id}")
-        reply_text = _clean_reply_text(raw_text)
-        if reply_text is None:
-            logger.warning("ai-core primary failed — falling back to cline for user_id=%s", user.id)
+    reply_text = await _answer_text(user.id, update.effective_chat.id, update.message.text, history, context)
 
     if reply_text is None:
-        raw_text, had_tool_calls = await _run_cline(update.message.text)
-        reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="cline primary")
-
-    if reply_text is None:
-        logger.warning("Cline primary failed/rejected — falling back to claude sonnet for user_id=%s", user.id)
-        raw_text, had_tool_calls = await _run_claude_sonnet(update.message.text)
-        reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="claude sonnet fallback")
-
-    if reply_text is None:
-        logger.error("Both cline primary and claude sonnet fallback failed for user_id=%s", user.id)
+        logger.error("All chat backends failed for user_id=%s", user.id)
         # Roll back the user turn we just recorded — it never got a reply,
         # so keeping it would desync history from what the model actually saw.
         history.pop()
@@ -449,6 +443,168 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     history.append({"role": "assistant", "content": reply_text})
     history[:] = history[-MAX_HISTORY_MESSAGES:]
     await update.message.reply_text(reply_text)
+
+
+async def _answer_text(
+    user_id: int,
+    chat_id: int,
+    prompt_text: str,
+    history: list[dict],
+    context: ContextTypes.DEFAULT_TYPE,
+) -> str | None:
+    """Shared text→reply chain (text messages + voice transcripts, #61).
+
+    ai-core primary → cline → claude fallback. Returns the reply or None
+    if every backend failed. Never raises.
+    """
+    reply_text = None
+    if USE_AI_CORE:
+        # One Brain primary (#70): resident ai-core service (persona +
+        # mem0 retrieval + tools + background extraction), ~1.3s typical
+        # (#71). Typing indicator while generating; CLI path below stays
+        # as the fallback tier.
+        try:
+            await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        except Exception as exc:  # noqa: BLE001 — cosmetic, never block
+            logger.debug("typing indicator failed: %s", exc)
+        raw_text = await _run_aicore(history, f"telegram:{user_id}")
+        reply_text = _clean_reply_text(raw_text)
+        if reply_text is None:
+            logger.warning("ai-core primary failed — falling back to cline for user_id=%s", user_id)
+
+    if reply_text is None:
+        raw_text, had_tool_calls = await _run_cline(prompt_text)
+        reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="cline primary")
+
+    if reply_text is None:
+        logger.warning("Cline primary failed/rejected — falling back to claude sonnet for user_id=%s", user_id)
+        raw_text, had_tool_calls = await _run_claude_sonnet(prompt_text)
+        reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="claude sonnet fallback")
+
+    return reply_text
+
+
+async def _run_stt(ogg_bytes: bytes) -> str | None:
+    """Transcribe a Telegram voice note via Groq Whisper (#61).
+
+    Returns the transcript text, or None on any failure (logs, never
+    raises). OpenAI-compatible multipart endpoint.
+    """
+    if not GROQ_API_KEY:
+        logger.error("GROQ_API_KEY not set — cannot run STT")
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=STT_TIMEOUT_SECONDS) as client:
+            resp = await client.post(
+                GROQ_STT_URL,
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                data={"model": GROQ_STT_MODEL, "response_format": "json"},
+                files={"file": ("voice.ogg", ogg_bytes, "audio/ogg")},
+            )
+            resp.raise_for_status()
+            text = resp.json().get("text", "")
+            return text.strip() or None
+    except Exception as exc:  # noqa: BLE001 — STT must never raise
+        logger.warning("STT failed: %s", exc)
+        return None
+
+
+def _clean_for_tts(text: str) -> str:
+    """Make chat text TTS-friendly: no markdown/lists/emojis, capped."""
+    cleaned = re.sub(r"[*_`#>|~]", "", text)
+    cleaned = re.sub(
+        "[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) > TTS_MAX_CHARS:
+        cleaned = cleaned[:TTS_MAX_CHARS].rstrip()
+    return cleaned
+
+
+async def _run_tts(text: str) -> bytes | None:
+    """Synthesize Thai speech via gTTS (#61).
+
+    Swap seam: replace this body with an OpenAI-compatible Thai TTS call
+    when one is available; callers only need MP3 bytes back. Returns None
+    on any failure (logs, never raises).
+    """
+    try:
+        from gtts import gTTS  # noqa: F401 — availability check
+
+        speech = _clean_for_tts(text)
+        if not speech:
+            return None
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, lambda: _synthesize_mp3(speech))
+    except Exception as exc:  # noqa: BLE001 — TTS must never raise
+        logger.warning("TTS failed: %s", exc)
+        return None
+
+
+def _synthesize_mp3(speech: str) -> bytes:
+    import io
+
+    from gtts import gTTS
+
+    buf = io.BytesIO()
+    gTTS(text=speech, lang=TTS_LANG, slow=False).write_to_fp(buf)
+    return buf.getvalue()
+
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if user is None or update.message is None or update.message.voice is None:
+        return
+
+    if user.id != OWNER_ID:
+        logger.warning("Ignored voice from non-owner user_id=%s", user.id)
+        return
+
+    if not VOICE_ENABLED:
+        await update.message.reply_text("Voice replies are off — send text.")
+        return
+
+    try:
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="record_voice")
+    except Exception as exc:  # noqa: BLE001 — cosmetic, never block
+        logger.debug("record_voice indicator failed: %s", exc)
+
+    tg_file = await update.message.voice.get_file()
+    ogg_bytes = bytes(await tg_file.download_as_bytearray())
+
+    transcript = await _run_stt(ogg_bytes)
+    if not transcript:
+        logger.warning("STT failed for user_id=%s", user.id)
+        await update.message.reply_text(VOICE_TROUBLE_REPLY)
+        return
+
+    history = _history.setdefault(user.id, [])
+    history.append({"role": "user", "content": f"[voice] {transcript}"})
+    history[:] = history[-MAX_HISTORY_MESSAGES:]
+
+    reply_text = await _answer_text(user.id, update.effective_chat.id, transcript, history, context)
+    if reply_text is None:
+        logger.error("All chat backends failed for voice user_id=%s", user.id)
+        history.pop()
+        await update.message.reply_text(TROUBLE_REPLY)
+        return
+
+    history.append({"role": "assistant", "content": reply_text})
+    history[:] = history[-MAX_HISTORY_MESSAGES:]
+
+    audio = await _run_tts(reply_text)
+    if audio is None:
+        await update.message.reply_text(TTS_FALLBACK_PREFIX + reply_text)
+        return
+
+    await context.bot.send_audio(
+        chat_id=update.effective_chat.id,
+        audio=audio,
+        title="NevNew voice reply",
+        caption=reply_text[:1024] if len(reply_text) > 1024 else reply_text,
+    )
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -488,6 +644,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.VOICE & ~filters.COMMAND, handle_voice))
     app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_photo))
     logger.info("NevNew Telegram bot starting (owner_id=%s, primary=cline/%s via %s)", OWNER_ID, CLINE_MODEL, CLINE_PROVIDER)
     app.run_polling(allowed_updates=Update.ALL_TYPES)

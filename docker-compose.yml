@@ -44,7 +44,7 @@ services:
     container_name: newnew-litellm
     restart: unless-stopped
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     env_file:
       - .env
     environment:
@@ -80,8 +80,8 @@ services:
     container_name: newnew-qdrant
     restart: unless-stopped
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
     networks:
@@ -92,7 +92,7 @@ services:
     container_name: newnew-n8n
     restart: unless-stopped
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     environment:
       - N8N_HOST=n8n.local
       - WEBHOOK_URL=http://localhost:5678/
@@ -112,7 +112,7 @@ services:
     container_name: newnew-mcpo
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     environment:
@@ -139,12 +139,15 @@ services:
     container_name: newnew-open-webui
     restart: unless-stopped
     ports:
-      - "3000:8080"
+      - "127.0.0.1:3000:8080"
     environment:
       - OPENAI_API_BASE_URL=http://litellm:4000/v1
       - OPENAI_API_KEY=${LITELLM_MASTER_KEY}
       - WEBUI_NAME=นิวนิว
-      - ENABLE_SIGNUP=true
+      # Public tunnel serves the WebUI — open signup would let anyone
+      # create an account (#73). First-user bootstrap still works with
+      # zero users in the DB (that registration becomes admin).
+      - ENABLE_SIGNUP=false
       - ENABLE_OLLAMA_API=false
     volumes:
       - newnew_open_webui_data:/app/backend/data
@@ -181,6 +184,8 @@ services:
       - AICORE_BASE_URL=http://ai-core:8000
       - AICORE_API_KEY=${AICORE_API_KEY}
       - USE_AI_CORE=${USE_AI_CORE:-true}
+      # Voice loop (#61): Groq Whisper STT (key already in .env).
+      - GROQ_API_KEY=${GROQ_API_KEY}
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
     networks:
@@ -210,7 +215,7 @@ services:
     ports:
       # Ops/debug access from the host; in-network callers use
       # http://memory:8000 (no port publish needed).
-      - "8011:8000"
+      - "127.0.0.1:8011:8000"
     depends_on:
       - qdrant
       - litellm
@@ -239,12 +244,15 @@ services:
       - MCPO_BASE_URL=http://mcpo:8000
       - MCPO_API_KEY=${MCPO_API_KEY}
       - AICORE_API_KEY=${AICORE_API_KEY}
+      - WEB_SEARCH_PROVIDER=${WEB_SEARCH_PROVIDER:-auto}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
     ports:
       # Host access for curl/debugging; in-network callers use
       # http://ai-core:8000.
-      - "8010:8000"
+      - "127.0.0.1:8010:8000"
     depends_on:
       litellm:
         condition: service_healthy

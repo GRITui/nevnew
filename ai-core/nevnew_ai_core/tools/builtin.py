@@ -1,9 +1,9 @@
 """Built-in tools that ship with AI Core.
 
-Both are safe, dependency-free and genuinely useful for a personal
-assistant: knowing the current date/time (models have no clock) and letting
-the model actively search the user's long-term memory beyond what was
-pre-injected into the system prompt.
+All are safe and genuinely useful for a personal assistant: knowing the
+current date/time (models have no clock), letting the model actively search
+the user's long-term memory beyond what was pre-injected into the system
+prompt, and searching the public web for current/external information.
 """
 
 from __future__ import annotations
@@ -13,8 +13,10 @@ from datetime import datetime
 from typing import Any, Dict, List
 from zoneinfo import ZoneInfo
 
+from ..config import Settings
 from ..memory_client import MemoryServiceClient
 from .base import Tool, ToolContext
+from .websearch import WebSearchTool
 
 logger = logging.getLogger("nevnew-ai-core")
 
@@ -95,5 +97,13 @@ class SearchUserMemoriesTool(Tool):
         return "\n".join(lines) if lines else "No matching memories found."
 
 
-def builtin_tools() -> List[Tool]:
-    return [GetCurrentDatetimeTool(), SearchUserMemoriesTool()]
+def builtin_tools(settings: Settings) -> List[Tool]:
+    return [
+        GetCurrentDatetimeTool(),
+        SearchUserMemoriesTool(),
+        WebSearchTool(
+            provider=settings.web_search_provider,
+            timeout_seconds=settings.web_search_timeout_seconds,
+            default_max_results=settings.web_search_max_results,
+        ),
+    ]
