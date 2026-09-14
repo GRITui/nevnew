@@ -287,6 +287,27 @@ def check_tools() -> tuple[str, bool, str]:
     return "tools", False, f"mcpo_status={mcpo[:60] or 'missing'} healed=false"
 
 
+def check_web_search() -> tuple[str, bool, str]:
+    key = ENV.get("AICORE_API_KEY", "")
+    payload = {"query": "Bangkok weather", "max_results": 3}
+    try:
+        status, body = http_post_json(
+            f"{AICORE_URL}/web_search", payload,
+            headers=auth_header(key), timeout=45)
+    except Exception as e:
+        return "web_search", False, f"POST /web_search failed: {type(e).__name__} healed=false"
+    if status != 200:
+        return "web_search", False, f"POST /web_search http={status} healed=false"
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return "web_search", False, "POST /web_search non-JSON healed=false"
+    results = data.get("results")
+    if not isinstance(results, list):
+        return "web_search", False, "results list missing healed=false"
+    return "web_search", True, f"provider={data.get('provider')} count={len(results)} healed=false"
+
+
 def check_n8n() -> tuple[str, bool, str]:
     try:
         status, _ = http_get(N8N_URL, timeout=20)
@@ -307,6 +328,7 @@ def main() -> int:
         check_memory_proxy(),
         check_telegram(),
         check_tools(),
+        check_web_search(),
         check_n8n(),
     ]
     if want_json:

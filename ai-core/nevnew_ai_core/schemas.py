@@ -92,3 +92,25 @@ class ToolsResponse(BaseModel):
     tools: List[ToolInfo]
     count: int
     mcpo_status: str
+
+
+class WebSearchRequest(BaseModel):
+    """POST /web_search request body."""
+
+    query: str = Field(min_length=1, max_length=400, description="The search query.")
+    max_results: int = Field(default=5, ge=1, le=10, description="Maximum results to return.")
+
+
+class WebSearchResult(BaseModel):
+    title: str
+    url: str
+    snippet: str
+
+
+class WebSearchResponse(BaseModel):
+    """POST /web_search response."""
+
+    query: str
+    provider: str
+    count: int
+    results: List[WebSearchResult]

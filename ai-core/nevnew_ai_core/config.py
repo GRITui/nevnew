@@ -72,6 +72,10 @@ class Settings:
     tool_result_max_chars: int
     mcpo_max_tools: int
 
+    web_search_provider: str
+    web_search_max_results: int
+    web_search_timeout_seconds: float
+
     timezone: str
 
     @classmethod
@@ -119,6 +123,20 @@ class Settings:
         if not 1 <= mcpo_max_tools <= 200:
             raise RuntimeError("AICORE_MCPO_MAX_TOOLS must be within 1-200")
 
+        web_search_provider = (_env_str("WEB_SEARCH_PROVIDER", "auto") or "auto").strip().lower()
+        if web_search_provider not in ("auto", "duckduckgo", "tavily", "brave"):
+            raise RuntimeError(
+                "WEB_SEARCH_PROVIDER must be one of auto, duckduckgo, tavily, brave"
+            )
+
+        web_search_max_results = _env_int("AICORE_WEB_SEARCH_MAX_RESULTS", 5)
+        if not 1 <= web_search_max_results <= 10:
+            raise RuntimeError("AICORE_WEB_SEARCH_MAX_RESULTS must be within 1-10")
+
+        web_search_timeout_seconds = _env_float("AICORE_WEB_SEARCH_TIMEOUT_SECONDS", 20.0)
+        if not 5 <= web_search_timeout_seconds <= 120:
+            raise RuntimeError("AICORE_WEB_SEARCH_TIMEOUT_SECONDS must be within 5-120")
+
         timezone = _env_str("AICORE_TIMEZONE", "Asia/Bangkok")
         try:
             ZoneInfo(timezone)
@@ -148,5 +166,8 @@ class Settings:
             max_message_chars=max_message_chars,
             tool_result_max_chars=tool_result_max_chars,
             mcpo_max_tools=mcpo_max_tools,
+            web_search_provider=web_search_provider,
+            web_search_max_results=web_search_max_results,
+            web_search_timeout_seconds=web_search_timeout_seconds,
             timezone=timezone,
         )

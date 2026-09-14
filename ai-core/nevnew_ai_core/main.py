@@ -33,10 +33,18 @@ from .config import Settings
 from .litellm_client import LiteLLMClient
 from .memory_client import MemoryServiceClient, MemoryServiceError
 from .pipeline import ChatOutcome, ChatPipeline, ChatPipelineError, load_persona_prompt
-from .schemas import ChatRequest, ChatResponse, ToolsResponse
+from .schemas import (
+    ChatRequest,
+    ChatResponse,
+    ToolsResponse,
+    WebSearchRequest,
+    WebSearchResponse,
+    WebSearchResult,
+)
 from .tools.base import ToolRegistry
 from .tools.builtin import builtin_tools
 from .tools.mcpo import McpoTools
+from .tools.websearch import WebSearchTool, run_web_search
 
 logging.basicConfig(
     level=logging.INFO,
@@ -94,7 +102,7 @@ async def _lifespan(app: FastAPI):
             result_max_chars=SETTINGS.tool_result_max_chars,
             max_tools=SETTINGS.mcpo_max_tools,
         )
-    registry = ToolRegistry(builtin_tools(), mcpo)
+    registry = ToolRegistry(builtin_tools(SETTINGS), mcpo)
     pipeline = ChatPipeline(
         settings=SETTINGS,
         litellm=litellm,
@@ -119,11 +127,12 @@ async def _lifespan(app: FastAPI):
         )
 
     logger.info(
-        "NevNew AI Core ready (model=%s, litellm=%s, memory=%s, mcpo=%s, tz=%s).",
+        "NevNew AI Core ready (model=%s, litellm=%s, memory=%s, mcpo=%s, web_search=%s, tz=%s).",
         SETTINGS.model_name,
         SETTINGS.litellm_base_url,
         SETTINGS.memory_base_url,
         SETTINGS.mcpo_base_url or "disabled",
+        SETTINGS.web_search_provider,
         SETTINGS.timezone,
     )
     yield
@@ -260,6 +269,25 @@ async def refresh_tools(request: Request) -> Dict[str, Any]:
         await registry.record_refresh_failure(exc)
         raise HTTPException(status_code=502, detail=f"mcpo refresh failed: {exc}") from exc
     return {"refreshed": True, "tool_count": count, "mcpo_status": registry.mcpo_status()}
+
+
+@app.post("/web_search", response_model=WebSearchResponse, dependencies=[Depends(_require_api_key)])
+async def web_search(request: Request, body: WebSearchRequest) -> WebSearchResponse:
+    """Direct structured web search — same provider as the web_search tool."""
+    registry: ToolRegistry = request.app.state.registry
+    tool = next((t for t in registry.all_tools() if t.name == "web_search"), None)
+    if not isinstance(tool, WebSearchTool):
+        raise HTTPException(status_code=503, detail="web_search tool not available")
+    try:
+        results = await run_web_search(tool.provider, tool.client, body.query, body.max_results)
+    except Exception as exc:  # noqa: BLE001 — surface as 502, never crash
+        raise HTTPException(status_code=502, detail=f"web search failed: {exc}") from exc
+    return WebSearchResponse(
+        query=body.query,
+        provider=tool.provider,
+        count=len(results),
+        results=[WebSearchResult(**item) for item in results],
+    )
 
 
 @app.get("/health")

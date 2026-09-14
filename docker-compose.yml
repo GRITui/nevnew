@@ -239,6 +239,9 @@ services:
       - MCPO_BASE_URL=http://mcpo:8000
       - MCPO_API_KEY=${MCPO_API_KEY}
       - AICORE_API_KEY=${AICORE_API_KEY}
+      - WEB_SEARCH_PROVIDER=${WEB_SEARCH_PROVIDER:-auto}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
     ports:
