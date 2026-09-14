@@ -62,6 +62,11 @@ KNOWN_NOISE = [
     # (see healthcheck in docker-compose.yml). Issue #28/#31 are duplicates
     # of this — adding the pattern here so the watcher stops re-filing.
     r"an error occurred during closing of",
+    # Unauthenticated probes against the LiteLLM proxy (401 "LiteLLM Virtual
+    # Key expected" / "No api key passed in") — healthchecks and internal
+    # clients hitting /v1/* without a key. Expected/operational, not a bug
+    # (issue #121 closed as noise, 2026-09-14).
+    r"LiteLLM Virtual Key expected|No api key passed in",
 ]
 
 # Lines that mark the start of a real error worth looking at.
