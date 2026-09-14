@@ -122,7 +122,9 @@ class McpoTools:
         headers: Dict[str, str] = {"Accept": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        self._client = httpx.AsyncClient(headers=headers, timeout=timeout_seconds)
+        self._client = httpx.AsyncClient(
+            base_url=base, headers=headers, timeout=timeout_seconds
+        )
         self._result_max_chars = result_max_chars
         self._max_tools = max_tools
 
