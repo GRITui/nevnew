@@ -1,23 +1,23 @@
 """Telegram bot: NevNew's MVP mobile/push channel (issue #11).
 
-Round-trip: Telegram message -> `cline` CLI (9arm gateway / qwen3.8-27b-fp8,
-the same provider+model as the Cline session this bot mirrors) -> reply.
-This bypasses LiteLLM/OpenRouter entirely for the chat path. Persona
-(NEVNEW_SYSTEM_PROMPT, from callbacks/nevnew_persona_prompt.py) is passed to
-the chat backend via cline's -s system-prompt flag (and prepended into the
-vision path's system prompt), since the chat path is not routed through
+Round-trip: Telegram message -> ai-core POST /chat (One Brain, #70:
+persona + mem0 memories + tools, background extraction) when USE_AI_CORE
+is true. Falls back to the `cline` CLI (9arm gateway / qwen3.8-27b-fp8)
+and then the `claude` CLI (same gateway, same model) when ai-core is
+unreachable — the whole bot runs on one provider/model, no separate
+account/quota. This bypasses LiteLLM/OpenRouter entirely for the chat
+path. Persona (NEVNEW_SYSTEM_PROMPT, from callbacks/nevnew_persona_prompt.py)
+is applied server-side by ai-core on the primary path, and passed via CLI
+flags on the fallback path, since the chat path is not routed through
 LiteLLM's own persona callback (callbacks/nevnew_persona.py).
 
-If Cline fails or its output is rejected by the safety gate, falls back to
-the `claude` CLI running Sonnet (a fully separate account/quota,
-authenticated via CLAUDE_CODE_OAUTH_TOKEN — see _run_claude_sonnet()).
-LiteLLM still serves Open-WebUI directly and is untouched.
-
-Both backends are full agent CLIs, not chat APIs, so both are run
+The CLI backends are full agent CLIs, not chat APIs, so both run
 locked-down (an isolated scratch cwd they can't escape, no tool approval)
 and their raw output goes through a fail-closed safety gate before ever
 reaching the user — see _run_cline(), _run_claude_sonnet(), and
-_gate_agent_reply() below.
+_gate_agent_reply() below. ai-core replies pass through _clean_reply_text
+(length cap + markdown-image strip); its server-side tool loop is
+intentional (that's the One Brain path).
 """
 
 import asyncio
@@ -105,11 +105,12 @@ os.makedirs(CLINE_SCRATCH_CWD, exist_ok=True)
 os.makedirs(CLAUDE_SONNET_SCRATCH_CWD, exist_ok=True)
 
 
-async def _run_aicore(messages: list[dict]) -> str | None:
-    """POST `messages` to ai-core /chat (One Brain prep, issue #70).
+async def _run_aicore(messages: list[dict], user_id: str) -> str | None:
+    """POST `messages` to ai-core /chat (One Brain, issue #70).
 
+    user_id is namespaced per channel (e.g. "telegram:<id>") so mem0
+    memories stay isolated until the cross-channel mapping lands.
     Returns the reply string, or None on any failure (logs, never raises).
-    Prep only — no handler calls this yet.
     """
     try:
         headers = {"Authorization": f"Bearer {AICORE_API_KEY}"} if AICORE_API_KEY else {}
@@ -117,17 +118,38 @@ async def _run_aicore(messages: list[dict]) -> str | None:
             response = await client.post(
                 f"{AICORE_BASE_URL}/chat",
                 json={
-                    "user_id": f"telegram:{OWNER_ID}",
+                    "user_id": user_id,
                     "messages": messages,
                     "channel": "telegram",
+                    "store_memories": True,
                 },
                 headers=headers,
             )
             response.raise_for_status()
             return response.json().get("reply")
-    except Exception as exc:  # noqa: BLE001 — prep helper must never raise
+    except Exception as exc:  # noqa: BLE001 — helper must never raise
         logger.warning("ai-core chat failed: %s", exc)
         return None
+
+
+async def _reset_aicore_memory(user_id: str) -> bool:
+    """Best-effort ai-core memory reset (One Brain, issue #70).
+
+    Returns True on success. Never raises — the /reset command clears
+    local history regardless.
+    """
+    try:
+        headers = {"Authorization": f"Bearer {AICORE_API_KEY}"} if AICORE_API_KEY else {}
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{AICORE_BASE_URL}/memory/users/{user_id}/reset",
+                headers=headers,
+            )
+            response.raise_for_status()
+            return True
+    except Exception as exc:  # noqa: BLE001 — reset must not fail the command
+        logger.warning("ai-core memory reset failed: %s", exc)
+        return False
 
 
 async def _run_cline(prompt: str) -> tuple[str | None, bool]:
@@ -371,7 +393,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update):
         return
-    _history.pop(update.effective_user.id, None)
+    user_id = update.effective_user.id
+    _history.pop(user_id, None)
+    # Best-effort: also clear persisted mem0 memories for this channel
+    # identity (One Brain, #70). Local history clears regardless.
+    await _reset_aicore_memory(f"telegram:{user_id}")
     await update.message.reply_text("Conversation history cleared.")
 
 
@@ -388,8 +414,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     history.append({"role": "user", "content": update.message.text})
     history[:] = history[-MAX_HISTORY_MESSAGES:]
 
-    raw_text, had_tool_calls = await _run_cline(update.message.text)
-    reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="cline primary")
+    reply_text = None
+    if USE_AI_CORE:
+        # One Brain primary (#70): resident ai-core service (persona +
+        # mem0 retrieval + tools + background extraction), ~1.3s typical
+        # (#71). Typing indicator while generating; CLI path below stays
+        # as the fallback tier.
+        try:
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        except Exception as exc:  # noqa: BLE001 — cosmetic, never block
+            logger.debug("typing indicator failed: %s", exc)
+        raw_text = await _run_aicore(history, f"telegram:{user.id}")
+        reply_text = _clean_reply_text(raw_text)
+        if reply_text is None:
+            logger.warning("ai-core primary failed — falling back to cline for user_id=%s", user.id)
+
+    if reply_text is None:
+        raw_text, had_tool_calls = await _run_cline(update.message.text)
+        reply_text = _gate_agent_reply(raw_text, had_tool_calls, source="cline primary")
 
     if reply_text is None:
         logger.warning("Cline primary failed/rejected — falling back to claude sonnet for user_id=%s", user.id)
