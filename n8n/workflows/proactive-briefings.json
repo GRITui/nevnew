@@ -1,0 +1,104 @@
+{
+ "name": "NevNew Briefings (issue #65)",
+ "nodes": [
+  {
+   "id": "b1f2c3d4-0001-4000-8000-000000000001",
+   "name": "Daily 07:00",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    -160,
+    0
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "cron",
+       "cronExpression": "0 7 * * *"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "b1f2c3d4-0002-4000-8000-000000000002",
+   "name": "Every 15 Minutes",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    -160,
+    200
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "minutes",
+       "minutesInterval": 15
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "b1f2c3d4-0003-4000-8000-000000000003",
+   "name": "Send Morning Brief",
+   "type": "n8n-nodes-base.executeCommand",
+   "typeVersion": 1,
+   "position": [
+    80,
+    0
+   ],
+   "parameters": {
+    "command": "python3 /Users/grit/nevnew/scripts/briefing.py brief",
+    "executeOnce": true
+   }
+  },
+  {
+   "id": "b1f2c3d4-0004-4000-8000-000000000004",
+   "name": "Check Nudges",
+   "type": "n8n-nodes-base.executeCommand",
+   "typeVersion": 1,
+   "position": [
+    80,
+    200
+   ],
+   "parameters": {
+    "command": "python3 /Users/grit/nevnew/scripts/briefing.py nudge",
+    "executeOnce": true
+   }
+  }
+ ],
+ "connections": {
+  "Daily 07:00": {
+   "main": [
+    [
+     {
+      "node": "Send Morning Brief",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Every 15 Minutes": {
+   "main": [
+    [
+     {
+      "node": "Check Nudges",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "notes": "SUPERSEDED 2026-09-14: triggers moved to system cron (nevnew_briefing_brief/nudge) because n8n ExecuteCommand-spawned Python hangs at interpreter startup in the task-runner sandbox (see Sprint 8 log). Kept for reference; DO NOT activate or briefings double-fire."
+ },
+ "active": false,
+ "tags": [],
+ "id": "a64acad4-b176-4d82-84da-6ba7741e9fdf"
+}
