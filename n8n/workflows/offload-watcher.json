@@ -39,7 +39,7 @@
       "typeVersion": 1,
       "position": [80, 80],
       "parameters": {
-        "command": "python3 /Users/grit/nevnew/scripts/offload_watch.py",
+        "command": "python3 /Volumes/Ugreen_WD 1.0 TB/grit/nevnew/scripts/offload_watch.py",
         "executeOnce": true
       }
     }

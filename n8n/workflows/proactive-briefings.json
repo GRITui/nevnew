@@ -51,7 +51,7 @@
     0
    ],
    "parameters": {
-    "command": "python3 /Users/grit/nevnew/scripts/briefing.py brief",
+    "command": "python3 /Volumes/Ugreen_WD 1.0 TB/grit/nevnew/scripts/briefing.py brief",
     "executeOnce": true
    }
   },
@@ -65,7 +65,7 @@
     200
    ],
    "parameters": {
-    "command": "python3 /Users/grit/nevnew/scripts/briefing.py nudge",
+    "command": "python3 /Volumes/Ugreen_WD 1.0 TB/grit/nevnew/scripts/briefing.py nudge",
     "executeOnce": true
    }
   }

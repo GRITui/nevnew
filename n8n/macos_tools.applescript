@@ -2,7 +2,7 @@
 -- macos_tools.applescript - NevNew's local macOS tools (issue #2)
 -- Invoked by the n8n "NevNew macOS + GitHub Tools" workflow's toolCode nodes:
 --
---   osascript /Users/grit/nevnew/n8n/macos_tools.applescript <subcommand> [args...]
+--   osascript /Volumes/Ugreen_WD 1.0 TB/grit/nevnew/n8n/macos_tools.applescript <subcommand> [args...]
 --
 -- Subcommands:
 --   list_reminders                     : reminders due within 7 days (incl. overdue)
