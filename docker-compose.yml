@@ -176,10 +176,11 @@ services:
       - ANTHROPIC_AUTH_TOKEN=${NINEARM_API_KEY}
       - ANTHROPIC_SMALL_FAST_MODEL=qwen3.8-27b-fp8
       - CLAUDE_FALLBACK_MODEL=qwen3.8-27b-fp8
-      # One Brain prep (#70): ai-core route plumbing, inert until cutover.
+      # One Brain (#70 cutover): ai-core is the primary chat path.
+      # Rollback: set USE_AI_CORE=false in .env and recreate.
       - AICORE_BASE_URL=http://ai-core:8000
       - AICORE_API_KEY=${AICORE_API_KEY}
-      - USE_AI_CORE=false
+      - USE_AI_CORE=${USE_AI_CORE:-true}
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
     networks:
