@@ -36,6 +36,11 @@ class ToolContext:
     user_id: str
     memory_client: Any  # MemoryServiceClient (duck-typed to avoid a cycle)
     settings: Any  # Settings
+    # Optional — only the status tool (issue #72) needs these; duck-typed
+    # (ToolRegistry / LiteLLMClient) to avoid import cycles. None when a
+    # caller builds a ToolContext without wiring them up (e.g. tests).
+    registry: Any = None
+    litellm_client: Any = None
 
 
 class Tool(ABC):

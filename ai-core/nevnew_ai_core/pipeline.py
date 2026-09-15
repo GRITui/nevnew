@@ -181,7 +181,13 @@ class ChatPipeline:
         for message in history:
             messages.append({"role": message.role, "content": self._trim_content(message.content)})
 
-        context = ToolContext(user_id=request.user_id, memory_client=self._memory, settings=settings)
+        context = ToolContext(
+            user_id=request.user_id,
+            memory_client=self._memory,
+            settings=settings,
+            registry=self._registry,
+            litellm_client=self._litellm,
+        )
 
         iterations = 0
         round_trips = 0
