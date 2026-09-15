@@ -70,7 +70,7 @@ send_telegram() {
     >/dev/null || echo "disk_headroom_check: telegram send failed" >&2
 }
 
-WARN_MSG="⚠ NevNew disk headroom warning: ${FREE_PCT}% free on ${MOUNT} (below ${WARN_THRESHOLD}%). Consider pruning docker volumes/images or rotating backups (see scripts/backup.sh)."
+WARN_MSG="WARNING: NevNew disk headroom warning: ${FREE_PCT}% free on ${MOUNT} (below ${WARN_THRESHOLD}%). Consider pruning docker volumes/images or rotating backups (see scripts/backup.sh)."
 send_telegram "$WARN_MSG"
 
 if [ "$FREE_PCT" -ge "$ESCALATE_THRESHOLD" ]; then
