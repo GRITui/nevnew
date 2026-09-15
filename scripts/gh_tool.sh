@@ -14,6 +14,17 @@
 
 set -u
 
+# Issue #126: n8n's task-runner sandbox has a stripped PATH/HOME, so `gh`
+# silently failed there (works in an interactive shell). Pin both, resolve
+# the binary by absolute path, and disable interactive prompts so gh can
+# never hang or read the wrong config in a reduced environment.
+export HOME="${HOME:-/Users/grit}"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export GH_PROMPT_DISABLED=1
+GH_BIN="/opt/homebrew/bin/gh"
+[ -x "$GH_BIN" ] || GH_BIN="$(command -v gh || true)"
+[ -n "$GH_BIN" ] || { echo "ERROR: gh CLI not found (checked /opt/homebrew/bin and PATH)" >&2; exit 3; }
+
 REPO="GRITui/nevnew"
 MAXARG=8
 
@@ -36,7 +47,10 @@ EOF
 
 run_gh() {
   # 25s hard timeout: perl sets ALRM then execs gh (timer survives exec).
-  perl -e 'alarm 25; exec @ARGV' -- "$@"
+  # First arg is the literal "gh" from call sites; swap in the pinned
+  # absolute binary so a stripped sandbox PATH can't break it (#126).
+  shift
+  perl -e 'alarm 25; exec @ARGV' -- "$GH_BIN" "$@"
 }
 
 is_uint() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
