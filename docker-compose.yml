@@ -250,6 +250,12 @@ services:
       - WEB_SEARCH_PROVIDER=${WEB_SEARCH_PROVIDER:-auto}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
       - BRAVE_API_KEY=${BRAVE_API_KEY:-}
+      # Research agent (issue #82): synthesis offload dispatcher contract
+      # (see scripts/offload.sh + tools/research.py's module docstring).
+      - AICORE_RESEARCH_OFFLOAD_CLASS=${AICORE_RESEARCH_OFFLOAD_CLASS:-complex}
+      - OFFLOAD_VIA=${OFFLOAD_VIA:-opencode-go}
+      - OPENAI_COMPAT_BASE_URL=${OPENAI_COMPAT_BASE_URL:-https://gateway.9arm.co/v1}
+      - OPENAI_COMPAT_API_KEY=${OPENAI_COMPAT_API_KEY:-}
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
     ports:
