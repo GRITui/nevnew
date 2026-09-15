@@ -141,6 +141,7 @@ class MemoryStore:
             host=settings.qdrant_host,
             port=settings.qdrant_port,
             api_key=settings.qdrant_api_key,  # None is fine for the local unauthenticated instance
+            https=False,  # loopback HTTP; qdrant-client defaults https=True whenever api_key is set
             prefer_grpc=False,
         )
         self._shared_embedder: Any = None
@@ -256,6 +257,7 @@ class MemoryStore:
         }
         if settings.qdrant_api_key:
             vector_config["api_key"] = settings.qdrant_api_key
+            vector_config["https"] = False
 
         llm_config: Dict[str, Any] = {
             "provider": "groq",
