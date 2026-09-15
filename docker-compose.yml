@@ -40,7 +40,9 @@ services:
       - newnew-net
 
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+    # Pinned to the digest actually running (`main-stable` carries no version
+    # label upstream — verified via `docker inspect` on 2026-09-15).
+    image: ghcr.io/berriai/litellm@sha256:a3715fa7ad8387941ab697259bd2881d68931657247a41984f90fae6d11c62bf
     container_name: newnew-litellm
     restart: unless-stopped
     ports:
@@ -76,7 +78,7 @@ services:
       - newnew-net
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.19.1
     container_name: newnew-qdrant
     restart: unless-stopped
     environment:
@@ -90,7 +92,7 @@ services:
       - newnew-net
 
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.38.7
     container_name: newnew-n8n
     restart: unless-stopped
     ports:
@@ -110,7 +112,10 @@ services:
       - newnew-net
 
   mcpo:
-    image: ghcr.io/open-webui/mcpo:main
+    # Pinned to the digest actually running (`main` carries no version tag
+    # upstream, though the package itself reports 0.0.20 — verified via
+    # `docker inspect` / `pip show mcpo` on 2026-09-15).
+    image: ghcr.io/open-webui/mcpo@sha256:1e82c9555c19e50b80745705f32b47a2647589f35279527b5118ecd3a71bd467
     container_name: newnew-mcpo
     restart: unless-stopped
     ports:
@@ -271,7 +276,7 @@ services:
       - newnew-net
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.9.1
     container_name: newnew-cloudflared
     restart: unless-stopped
     command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
@@ -281,7 +286,7 @@ services:
       - newnew-net
 
   cloudflared-quick:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.9.1
     container_name: newnew-cloudflared-quick
     restart: unless-stopped
     command: tunnel --no-autoupdate --url http://newnew-open-webui:8080
