@@ -78,6 +78,14 @@ class Settings:
 
     timezone: str
 
+    # Path to the watchdog's host-status snapshot (issue #72's `status` tool).
+    # `~/ops/nevnew_selfheal.py` writes `~/ops/nevnew-status.json` on the host
+    # — outside the repo and NOT mounted by default (compose-snippet.yml has
+    # the optional bind mount commented out). When unset/unreadable the
+    # status tool reports container health as "unavailable" rather than
+    # failing the whole status check.
+    host_status_path: Optional[str]
+
     @classmethod
     def from_env(cls) -> "Settings":
         litellm_base_url = _env_str("LITELLM_BASE_URL", "http://litellm:4000/v1")
@@ -170,4 +178,5 @@ class Settings:
             web_search_max_results=web_search_max_results,
             web_search_timeout_seconds=web_search_timeout_seconds,
             timezone=timezone,
+            host_status_path=_env_str("AICORE_HOST_STATUS_PATH"),
         )

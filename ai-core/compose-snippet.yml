@@ -35,8 +35,17 @@ services:
       # - AICORE_MAX_TOOL_ITERATIONS=6
       # - AICORE_MEMORY_TOP_K=5
       # - AICORE_TIMEZONE=Asia/Bangkok
+      # Issue #72's `status` tool reads container health from the host
+      # watchdog's snapshot (`~/ops/nevnew_selfheal.py` writes
+      # ~/ops/nevnew-status.json — see BACKLOG.md "Self-heal loop" entry).
+      # That path is OUTSIDE the repo, so it's opt-in: uncomment both this
+      # var and the matching volume mount below on the host that actually
+      # runs the watchdog. Left unset, the status tool just reports
+      # container health as "unavailable" instead of failing.
+      # - AICORE_HOST_STATUS_PATH=/app/host-status.json
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
+      # - ${HOME}/ops/nevnew-status.json:/app/host-status.json:ro
     ports:
       # Host access for curl/debugging; in-network callers use
       # http://ai-core:8000.
