@@ -219,6 +219,18 @@ class MemoryStore:
     def collection_name(self, user_id: str) -> str:
         return sanitize_user_id_for_collection(user_id, self._settings.collection_prefix)
 
+    @property
+    def qdrant_client(self) -> QdrantClient:
+        """Shared QdrantClient (issue #79: reused by DocumentStore)."""
+        return self._qdrant
+
+    @property
+    def shared_embedder(self) -> Any:
+        """Shared local embedding model, or None when using an HTTP embedder
+        (issue #79: reused by DocumentStore so documents never load a
+        second copy of the model)."""
+        return self._shared_embedder
+
     async def _memory_for(self, user_id: str) -> AsyncMemory:
         existing = self._memories.get(user_id)
         if existing is not None:

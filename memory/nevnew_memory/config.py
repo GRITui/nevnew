@@ -75,6 +75,9 @@ class MemorySettings:
     qdrant_on_disk: bool
 
     collection_prefix: str
+    doc_collection_prefix: str
+    doc_search_top_k: int
+    doc_max_upload_bytes: int
 
     groq_model: str
     groq_api_key: str
@@ -143,6 +146,27 @@ class MemorySettings:
         if not collection_prefix[0].isalpha():
             raise RuntimeError("MEM0_COLLECTION_PREFIX must start with a letter")
 
+        doc_collection_prefix = _env_str("MEM0_DOC_COLLECTION_PREFIX", "nevnew_doc_u_")
+        if not doc_collection_prefix or len(doc_collection_prefix) > 32:
+            raise RuntimeError("MEM0_DOC_COLLECTION_PREFIX must be 1-32 characters")
+        if not all(ch.isalnum() or ch in "_-" for ch in doc_collection_prefix):
+            raise RuntimeError("MEM0_DOC_COLLECTION_PREFIX may only contain [A-Za-z0-9_-]")
+        if not doc_collection_prefix[0].isalpha():
+            raise RuntimeError("MEM0_DOC_COLLECTION_PREFIX must start with a letter")
+        if doc_collection_prefix == collection_prefix:
+            raise RuntimeError(
+                "MEM0_DOC_COLLECTION_PREFIX must differ from MEM0_COLLECTION_PREFIX "
+                "(documents and memories must not share collections)"
+            )
+
+        doc_search_top_k = _env_int("MEM0_DOC_SEARCH_TOP_K", 5)
+        if not 1 <= doc_search_top_k <= 50:
+            raise RuntimeError("MEM0_DOC_SEARCH_TOP_K must be within 1-50")
+
+        doc_max_upload_bytes = _env_int("MEM0_DOC_MAX_UPLOAD_BYTES", 20 * 1024 * 1024)
+        if doc_max_upload_bytes < 1024:
+            raise RuntimeError("MEM0_DOC_MAX_UPLOAD_BYTES must be >= 1024")
+
         groq_model = _env_str("MEM0_GROQ_MODEL", "qwen/qwen3.8-27b")
         groq_api_key = _env_str("GROQ_API_KEY")
         if not groq_api_key:
@@ -160,6 +184,9 @@ class MemorySettings:
             qdrant_host=qdrant_host,
             qdrant_port=qdrant_port,
             collection_prefix=collection_prefix,
+            doc_collection_prefix=doc_collection_prefix,
+            doc_search_top_k=doc_search_top_k,
+            doc_max_upload_bytes=doc_max_upload_bytes,
             groq_model=groq_model,
             groq_api_key=groq_api_key,
             llm_temperature=llm_temperature,
@@ -172,6 +199,9 @@ class MemorySettings:
         qdrant_host: str,
         qdrant_port: int,
         collection_prefix: str,
+        doc_collection_prefix: str,
+        doc_search_top_k: int,
+        doc_max_upload_bytes: int,
         groq_model: str,
         groq_api_key: str,
         llm_temperature: float,
@@ -237,6 +267,9 @@ class MemorySettings:
             qdrant_api_key=_env_str("QDRANT_API_KEY"),
             qdrant_on_disk=_env_bool("MEM0_QDRANT_ON_DISK", False),
             collection_prefix=collection_prefix,
+            doc_collection_prefix=doc_collection_prefix,
+            doc_search_top_k=doc_search_top_k,
+            doc_max_upload_bytes=doc_max_upload_bytes,
             groq_model=groq_model,
             groq_api_key=groq_api_key,
             llm_temperature=llm_temperature,

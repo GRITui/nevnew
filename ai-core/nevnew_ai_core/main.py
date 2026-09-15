@@ -11,7 +11,11 @@ Endpoints:
     GET  /ready                     LiteLLM + memory-service readiness
     /memory/*                       pass-through management proxies to the
                                     memory service (single API surface for
-                                    channels like the Telegram bot / n8n)
+                                    channels like the Telegram bot / n8n),
+                                    including document RAG (issue #79):
+                                    POST /memory/users/{id}/documents (upload,
+                                    multipart), GET .../documents/search,
+                                    GET .../documents, DELETE .../documents/{source}
 
 All endpoints except /health and /ready require
 `Authorization: Bearer $AICORE_API_KEY` when that env var is set.
@@ -25,7 +29,18 @@ import secrets
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import JSONResponse
 
 from . import __version__
@@ -449,6 +464,71 @@ async def memory_reset(user_id: str, request: Request) -> JSONResponse:
     client = _memory_client(request)
     try:
         return _relay(await client.forward("POST", f"/users/{user_id}/reset"))
+    except MemoryServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Document RAG proxies (issue #79) — same "one API surface" pattern as the
+# memory proxies above, except upload is multipart (forward() is JSON-only).
+# ---------------------------------------------------------------------------
+
+
+@app.post("/memory/users/{user_id}/documents", dependencies=[Depends(_require_api_key)])
+async def memory_document_upload(
+    user_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    source: Optional[str] = Form(default=None),
+) -> JSONResponse:
+    client = _memory_client(request)
+    raw = await file.read()
+    files = {"file": (file.filename or "upload", raw, file.content_type or "application/octet-stream")}
+    data = {"source": source} if source else None
+    try:
+        return _relay(
+            await client.forward_multipart(
+                "POST", f"/users/{user_id}/documents", data=data, files=files
+            )
+        )
+    except MemoryServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/memory/users/{user_id}/documents/search", dependencies=[Depends(_require_api_key)])
+async def memory_document_search(
+    request: Request,
+    user_id: str,
+    query: str = Query(min_length=1, max_length=2000),
+    limit: int = Query(default=5, ge=1, le=50),
+) -> JSONResponse:
+    client = _memory_client(request)
+    try:
+        return _relay(
+            await client.forward(
+                "GET",
+                f"/users/{user_id}/documents/search",
+                params={"query": query, "limit": limit},
+            )
+        )
+    except MemoryServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/memory/users/{user_id}/documents", dependencies=[Depends(_require_api_key)])
+async def memory_document_list(request: Request, user_id: str) -> JSONResponse:
+    client = _memory_client(request)
+    try:
+        return _relay(await client.forward("GET", f"/users/{user_id}/documents"))
+    except MemoryServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.delete("/memory/users/{user_id}/documents/{source}", dependencies=[Depends(_require_api_key)])
+async def memory_document_delete(user_id: str, source: str, request: Request) -> JSONResponse:
+    client = _memory_client(request)
+    try:
+        return _relay(await client.forward("DELETE", f"/users/{user_id}/documents/{source}"))
     except MemoryServiceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

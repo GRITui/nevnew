@@ -39,6 +39,7 @@ class MemoryServiceClient:
         self._base_url = base_url.rstrip("/")
         self._search_url = f"{self._base_url}/users/{{user_id}}/memories/search"
         self._add_url = f"{self._base_url}/users/{{user_id}}/memories"
+        self._doc_search_url = f"{self._base_url}/users/{{user_id}}/documents/search"
         headers: Dict[str, str] = {"Accept": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -76,6 +77,29 @@ class MemoryServiceClient:
         if response.status_code != 200:
             raise MemoryServiceError(
                 f"memory search failed (HTTP {response.status_code}): {response.text[:300]}",
+                status=response.status_code,
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise MemoryServiceError("memory service returned invalid JSON") from exc
+        results = payload.get("results")
+        return results if isinstance(results, list) else []
+
+    async def search_documents(self, user_id: str, query: str, limit: int) -> List[Dict[str, Any]]:
+        """Return ranked document chunks for a user (issue #79; raises MemoryServiceError)."""
+        url = self._doc_search_url.format(user_id=user_id)
+        try:
+            response = await self._client.get(
+                url,
+                params={"query": query, "limit": limit},
+                timeout=self._search_timeout,
+            )
+        except httpx.HTTPError as exc:
+            raise MemoryServiceError(f"memory service unreachable: {exc}") from exc
+        if response.status_code != 200:
+            raise MemoryServiceError(
+                f"document search failed (HTTP {response.status_code}): {response.text[:300]}",
                 status=response.status_code,
             )
         try:
@@ -124,5 +148,28 @@ class MemoryServiceClient:
         url = f"{self._base_url}{path}"
         try:
             return await self._client.request(method, url, params=params, json=json_body)
+        except httpx.HTTPError as exc:
+            raise MemoryServiceError(f"memory service unreachable: {exc}") from exc
+
+    async def forward_multipart(
+        self,
+        method: str,
+        path: str,
+        *,
+        data: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = None,
+    ) -> httpx.Response:
+        """Raw multipart pass-through (issue #79 document upload) — `forward()`
+        is JSON-only and unsuitable for file uploads."""
+        url = f"{self._base_url}{path}"
+        try:
+            return await self._client.request(
+                method,
+                url,
+                data=data,
+                files=files,
+                timeout=timeout or self._add_timeout,
+            )
         except httpx.HTTPError as exc:
             raise MemoryServiceError(f"memory service unreachable: {exc}") from exc
