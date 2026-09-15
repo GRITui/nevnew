@@ -87,6 +87,11 @@ if [ -z "${LITELLM_MASTER_KEY:-}" ] || [ "$LITELLM_MASTER_KEY" = "sk-newnew-chan
   exit 1
 fi
 
+if [ -z "${QDRANT_API_KEY:-}" ] || [ "$QDRANT_API_KEY" = "your-qdrant-api-key-here" ]; then
+  echo "WARNING: QDRANT_API_KEY is not set in .env — qdrant will run without auth (#73)." >&2
+  echo "WARNING: generate one (openssl rand -hex 32) and re-run setup.sh to sync it." >&2
+fi
+
 # ---------------------------------------------------------------------------
 # 5. Bring the stack up
 # ---------------------------------------------------------------------------

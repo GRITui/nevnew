@@ -23,6 +23,9 @@ services:
       # `qdrant`; from the host it's http://localhost:6333).
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      # Bearer key for the authenticated Qdrant service (#73) — mirrors
+      # docker-compose.yml `memory` env block. Generate once, keep in .env.
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
       # Memory extraction LLM: the LiteLLM proxy's "NevNew" alias
       # (qwen3.8-max, medium reasoning — see config.yaml). This spends
       # tokens from the same $15/30d budget cap as chat traffic.
@@ -47,8 +50,9 @@ services:
       - nevnew_memory_data:/data
     ports:
       # Ops/debug access from the host; in-network callers use
-      # http://memory:8000 (no port publish needed).
-      - "8011:8000"
+      # http://memory:8000 (no port publish needed). Localhost-only
+      # per #73 LAN hardening (matches docker-compose.yml).
+      - "127.0.0.1:8011:8000"
     depends_on:
       - qdrant
       - litellm
