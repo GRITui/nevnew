@@ -7,3 +7,4 @@
 __pycache__/
 scripts/.error_watcher_state.json
 scripts/.briefing_state.json
+data/schedules/schedules.db

@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from ..config import Settings
 from ..memory_client import MemoryServiceClient
 from .base import Tool, ToolContext
+from .scheduling import CancelScheduleTool, ListSchedulesTool, ScheduleTaskTool
 from .websearch import WebSearchTool
 
 logger = logging.getLogger("nevnew-ai-core")
@@ -106,4 +107,7 @@ def builtin_tools(settings: Settings) -> List[Tool]:
             timeout_seconds=settings.web_search_timeout_seconds,
             default_max_results=settings.web_search_max_results,
         ),
+        ScheduleTaskTool(),
+        ListSchedulesTool(),
+        CancelScheduleTool(),
     ]

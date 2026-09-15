@@ -78,6 +78,8 @@ class Settings:
 
     timezone: str
 
+    schedules_db_path: str
+
     @classmethod
     def from_env(cls) -> "Settings":
         litellm_base_url = _env_str("LITELLM_BASE_URL", "http://litellm:4000/v1")
@@ -170,4 +172,7 @@ class Settings:
             web_search_max_results=web_search_max_results,
             web_search_timeout_seconds=web_search_timeout_seconds,
             timezone=timezone,
+            schedules_db_path=_env_str(
+                "AICORE_SCHEDULES_DB_PATH", "/data/schedules/schedules.db"
+            ),
         )

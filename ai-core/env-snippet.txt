@@ -36,3 +36,7 @@ AICORE_API_KEY=change-me-generate-with-openssl-rand-hex-24
 # AICORE_MCPO_MAX_TOOLS=50
 # Misc.
 # AICORE_TIMEZONE=Asia/Bangkok
+# Natural-language scheduling (issue #62) — path INSIDE the container; the
+# host side (scripts/scheduler_runner.py, run via system cron) reads the
+# same file via the ./data/schedules bind mount at ./data/schedules/schedules.db.
+# AICORE_SCHEDULES_DB_PATH=/data/schedules/schedules.db
