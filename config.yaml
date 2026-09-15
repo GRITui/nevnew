@@ -74,6 +74,22 @@ model_list:
       id: claude-3-5-haiku-openrouter
       mode: chat
 
+  # NevNew-Hermes: Nous Research Hermes-4-70B via OpenRouter (no direct
+  # provider key needed; rides OPENROUTER_API_KEY like Mini/Haiku). Hybrid
+  # reasoning model, 131K context — opt-in lane for Open-WebUI/n8n callers
+  # that want Hermes specifically, not part of the NevNew cost-routing
+  # group and not wired into any fallback chain by default.
+  - model_name: NevNew-Hermes
+    litellm_params:
+      model: openrouter/nousresearch/hermes-4-70b
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      max_tokens: 8192
+      rpm: 10
+    model_info:
+      id: hermes-4-70b-openrouter
+      mode: chat
+
   # EXTENSION POINT — opencode / generic OpenAI-compatible lane. Uncomment
   # once OPENCODE_BASE_URL is known (key OPENCODE_ZEN_API_KEY exists):
   # - model_name: NevNew-Code
