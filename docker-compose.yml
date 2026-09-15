@@ -79,6 +79,8 @@ services:
     image: qdrant/qdrant:latest
     container_name: newnew-qdrant
     restart: unless-stopped
+    environment:
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY}
     ports:
       - "127.0.0.1:6333:6333"
       - "127.0.0.1:6334:6334"
@@ -202,6 +204,7 @@ services:
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
       - MEM0_GROQ_MODEL=qwen/qwen3.8-27b
       # GROQ_API_KEY comes from .env so the memory image sees it (the
       # service deliberately does NOT use env_file: mem0's OpenAI-LLM
