@@ -194,6 +194,36 @@
       ],
       "id": "b1c2d3e4-0003-4a5b-8c6d-000000000006",
       "name": "GitHub PR Diff"
+    },
+    {
+      "parameters": {
+        "description": "Queue a long-running background job (e.g. 'research X', 'fix that bug') via the tiered offload dispatcher. Runs asynchronously \u2014 returns immediately with a job id. A Telegram message with the result is sent automatically when the job finishes; use job_status to check on it in the meantime. task_class is small (docs/triage), code (default, single/multi-file changes), or complex (architecture/hard debugging).",
+        "jsCode": "// NevNew background job tool: run_background_job (issue #67)\n// Queues a task via scripts/offload_dispatch.sh, which launches\n// scripts/offload.sh fully detached and registers the job in\n// /tmp/nevnew-offload-jobs.json for scripts/offload_watch.py (this\n// workflow's own \"NevNew Offload Watcher\", every minute) to notice and\n// Telegram-notify on completion. Returns immediately with a job id.\nconst { execFile } = require('child_process');\n\nconst SCRIPT = '/Volumes/Ugreen_WD 1.0 TB/grit/nevnew/scripts/offload_dispatch.sh';\nconst ARGS = [[\"task\", \"string\", \"Full task text/instructions for the background worker\"], [\"task_class\", \"string\", \"small, code, or complex (default code)\"]];\n\nmodule.exports = async function () {\n  let task = '';\n  let taskClass = '';\n  try {\n    task = $fromAI('task', 'Full task text/instructions for the background worker', 'string');\n  } catch (e) {\n    task = '';\n  }\n  try {\n    taskClass = $fromAI('task_class', 'small, code, or complex (default code)', 'string');\n  } catch (e) {\n    taskClass = '';\n  }\n  task = task === undefined || task === null ? '' : String(task).trim();\n  taskClass = taskClass === undefined || taskClass === null ? '' : String(taskClass).trim();\n  if (!taskClass) taskClass = 'code';\n  if (!task) return 'ERROR: task is required';\n\n  const argv = ['-c', taskClass, task];\n  return await new Promise((resolve) => {\n    execFile(\n      '/bin/bash',\n      [SCRIPT, ...argv],\n      { timeout: 20000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout, stderr) => {\n        const jobId = String(stdout || '').trim();\n        if (jobId) {\n          return resolve(\n            'Job queued: ' + jobId + '. It runs in the background; a Telegram ' +\n            'message with the result arrives automatically when it finishes. ' +\n            'Use job_status with this id to check progress in the meantime.'\n          );\n        }\n        const errText = String(stderr || (err && err.message) || '').trim();\n        resolve('ERROR: ' + (errText || 'offload_dispatch.sh produced no output').slice(0, 800));\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        2272
+      ],
+      "id": "b1c2d3e4-0002-4a5b-8c6d-000000000005",
+      "name": "Run Background Job"
+    },
+    {
+      "parameters": {
+        "description": "Check the status of a background job queued with run_background_job. Pass the job_id it returned. Returns running/ok/failed plus a tail of the job's output (or error) once it's finished. Omit job_id to list every known job and its status.",
+        "jsCode": "// NevNew background job tool: job_status (issue #67)\n// Reports the status of one job queued with run_background_job (or lists\n// all known jobs), by reading scripts/offload_status.py against the same\n// registry scripts/offload_watch.py polls.\nconst { execFile } = require('child_process');\n\nconst SCRIPT = '/Volumes/Ugreen_WD 1.0 TB/grit/nevnew/scripts/offload_status.py';\nconst ARGS = [[\"job_id\", \"string\", \"Job id returned by run_background_job; omit/blank to list all known jobs\"]];\n\nmodule.exports = async function () {\n  let jobId = '';\n  try {\n    jobId = $fromAI('job_id', 'Job id returned by run_background_job; omit/blank to list all known jobs', 'string');\n  } catch (e) {\n    jobId = '';\n  }\n  jobId = jobId === undefined || jobId === null ? '' : String(jobId).trim();\n  const argv = jobId ? [SCRIPT, jobId] : [SCRIPT, '--list'];\n  return await new Promise((resolve) => {\n    execFile(\n      'python3',\n      argv,\n      { timeout: 15000, maxBuffer: 1024 * 1024, encoding: 'utf8' },\n      (err, stdout, stderr) => {\n        const out = String(stdout || '').trim();\n        if (out) return resolve(out.slice(0, 8000));\n        const errText = String(stderr || (err && err.message) || '').trim();\n        resolve('ERROR: ' + (errText || 'offload_status.py produced no output').slice(0, 800));\n      }\n    );\n  });\n};",
+        "specifyInputSchema": false
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        2444
+      ],
+      "id": "b1c2d3e4-0002-4a5b-8c6d-000000000006",
+      "name": "Job Status"
     }
   ],
   "connections": {
@@ -319,6 +349,28 @@
       ]
     },
     "GitHub PR Diff": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Background Job": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Status": {
       "ai_tool": [
         [
           {

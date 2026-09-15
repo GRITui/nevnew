@@ -60,6 +60,20 @@ def save_json(path, data):
         json.dump(data, fh, indent=2, sort_keys=True)
 
 
+def result_snippet(out_path, limit=280):
+    """Short preview of a job's output file for the completion message —
+    issue #67 wants the Telegram push to carry the result, not just a path
+    the owner then has to go read manually."""
+    try:
+        text = Path(out_path).read_text(errors="replace").strip()
+    except OSError:
+        return ""
+    text = " ".join(text.split())
+    if len(text) > limit:
+        text = text[:limit].rstrip() + "…"
+    return text
+
+
 def job_status(job):
     out = Path(job["out"])
     err = Path(job["err"])
@@ -105,14 +119,20 @@ def main():
     final_sent = state.get("final_sent", False)
 
     jobs = []
+    jobs_by_name = {}
     lines = []
     for job in registry:
         name = job.get("name", "?")
         status = job_status(job)
         jobs.append({"name": name, "status": status})
+        jobs_by_name[name] = job
         if last.get(name) != status:
             if status == "ok":
-                lines.append("✅ %s: done — output at %s" % (name, job["out"]))
+                snippet = result_snippet(job["out"])
+                lines.append(
+                    "✅ %s: done — output at %s%s"
+                    % (name, job["out"], ("\n   " + snippet) if snippet else "")
+                )
             elif status == "failed":
                 err_detail = ""
                 try:
@@ -122,6 +142,13 @@ def main():
                 lines.append("❌ %s: FAILED — %s" % (name, err_detail))
 
     all_done = all(j["status"] in ("ok", "failed") for j in jobs)
+    if not all_done:
+        # issue #67: a fresh job was appended to the registry (e.g. by
+        # scripts/offload_dispatch.sh) after a previous batch already sent
+        # its final summary. Without this reset, final_sent stays True
+        # forever and the new batch's completion never gets announced —
+        # only the very first batch on a given registry file ever would.
+        final_sent = False
     n_ok = sum(1 for j in jobs if j["status"] == "ok")
     n_failed = sum(1 for j in jobs if j["status"] == "failed")
     n_running = len(jobs) - n_ok - n_failed
@@ -132,13 +159,20 @@ def main():
             "\n⏳ %d still running." % n_running
         )
     if all_done and not final_sent:
+        summary_lines = []
+        for j in jobs:
+            job = jobs_by_name[j["name"]]
+            if j["status"] == "ok":
+                snippet = result_snippet(job["out"])
+                summary_lines.append(
+                    "✅ %s — %s%s"
+                    % (j["name"], job["out"], ("\n   " + snippet) if snippet else "")
+                )
+            else:
+                summary_lines.append("❌ %s — %s" % (j["name"], job["err"]))
         message = (
             "🏁 ALL offload jobs finished: %d ok, %d failed.\n" % (n_ok, n_failed)
-            + "\n".join(
-                "✅ %s" % j["name"] if j["status"] == "ok" else "❌ %s" % j["name"]
-                for j in jobs
-            )
-            + "\nOutputs: /tmp/out_<name>.md — orchestrator review pending."
+            + "\n".join(summary_lines)
         )
         final_sent = True
 
