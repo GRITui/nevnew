@@ -35,8 +35,13 @@ services:
       # - AICORE_MAX_TOOL_ITERATIONS=6
       # - AICORE_MEMORY_TOP_K=5
       # - AICORE_TIMEZONE=Asia/Bangkok
+      # - AICORE_SCHEDULES_DB_PATH=/data/schedules/schedules.db
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
+      # Natural-language scheduling (issue #62) — bind mount, NOT a named
+      # volume, so scripts/scheduler_runner.py (system cron, host-side) sees
+      # the identical schedules.db file at ./data/schedules on the host.
+      - ./data/schedules:/data/schedules
     ports:
       # Host access for curl/debugging; in-network callers use
       # http://ai-core:8000.
