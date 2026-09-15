@@ -26,11 +26,17 @@ tar czf "$BACKUP_DIR/nevnew-repo.tar.gz" \
   "$(basename "$PROJECT_ROOT")"
 
 echo "==> [2/3] Open-WebUI chat history/database (docker volume)..."
+# Excludes the cached embedding model (cache/embedding/models, ~963MB per
+# BACKLOG.md's backup-size note) — it's re-downloaded automatically on
+# first use if missing, so backing it up just bloats every archive without
+# protecting anything that can't be regenerated (issue #63).
 docker run --rm \
   -v newnew_open_webui_data:/data:ro \
   -v "$BACKUP_DIR":/backup \
   alpine \
-  tar czf /backup/open-webui-data.tar.gz -C /data .
+  tar czf /backup/open-webui-data.tar.gz \
+    --exclude="./cache/embedding" \
+    -C /data .
 
 echo "==> [3/3] n8n workflows/database (~/.n8n)..."
 if [ -d "$HOME/.n8n" ]; then

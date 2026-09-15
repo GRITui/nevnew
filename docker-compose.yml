@@ -18,6 +18,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    # Container resource limits (issue #63): Postgres only holds LiteLLM's
+    # budget/spend tables (small, low write volume) — 512m covers shared
+    # buffers + connection overhead with headroom.
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     networks:
       - newnew-net
 
@@ -36,6 +43,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    # Container resource limits (issue #63): redis's own --maxmemory
+    # (256mb) caps the dataset; this leaves headroom for process/connection
+    # overhead above that cap.
+    deploy:
+      resources:
+        limits:
+          memory: 384m
     networks:
       - newnew-net
 
@@ -72,6 +86,13 @@ services:
       timeout: 10s
       retries: 5
       start_period: 20s
+    # Container resource limits (issue #63): LiteLLM proxy process (single
+    # worker) plus request/response buffering; 1g covers normal load with
+    # headroom for occasional spikes.
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     networks:
       - newnew-net
 
@@ -86,6 +107,13 @@ services:
       - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
+    # Container resource limits (issue #63): Qdrant keeps vector indexes
+    # in memory — this stack's collections are small (per-user memory
+    # embeddings), but 1g leaves room to grow before OOM.
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     networks:
       - newnew-net
 
@@ -106,6 +134,13 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/workflows
+    # Container resource limits (issue #63): n8n (Node.js) workflow engine;
+    # 1g covers typical workflow execution load for this single-tenant
+    # instance.
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     networks:
       - newnew-net
 
@@ -133,6 +168,13 @@ services:
       timeout: 10s
       retries: 5
       start_period: 20s
+    # Container resource limits (issue #63): mcpo is a thin MCP<->HTTP
+    # bridge with minimal state; 256m is generous headroom for its
+    # footprint.
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     networks:
       - newnew-net
 
@@ -158,6 +200,13 @@ services:
     depends_on:
       litellm:
         condition: service_healthy
+    # Container resource limits (issue #63): Open-WebUI's cached embedding
+    # model alone measures ~963MB in this stack (see BACKLOG.md backup-size
+    # note); 2g leaves headroom above that for the app process + requests.
+    deploy:
+      resources:
+        limits:
+          memory: 2g
     networks:
       - newnew-net
 
@@ -190,6 +239,13 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY}
     volumes:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
+    # Container resource limits (issue #63): telegram-bot shells out to the
+    # cline/claude CLIs per message rather than holding large in-process
+    # state; 512m is comfortable headroom for that.
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     networks:
       - newnew-net
 
@@ -228,6 +284,16 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+    # Container resource limits (issue #63): mem0 loads CPU torch +
+    # sentence-transformers for local embeddings (Dockerfile note: the
+    # embedding model itself is ~470MB on disk; loaded torch + model +
+    # mem0/fastapi process typically runs 800MB-1.5GB resident). 2g gives
+    # real headroom above that so the container OOMs before starving the
+    # host instead of the other way around.
+    deploy:
+      resources:
+        limits:
+          memory: 2g
     networks:
       - newnew-net
 
@@ -267,6 +333,12 @@ services:
       timeout: 10s
       retries: 5
       start_period: 20s
+    # Container resource limits (issue #63): ai-core is a thin FastAPI
+    # request/response harness with no local model weights; 512m is ample.
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     networks:
       - newnew-net
 
@@ -277,6 +349,12 @@ services:
     command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     env_file:
       - .env
+    # Container resource limits (issue #63): cloudflared is a lightweight
+    # tunnel client; 256m is generous headroom.
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     networks:
       - newnew-net
 
@@ -285,6 +363,10 @@ services:
     container_name: newnew-cloudflared-quick
     restart: unless-stopped
     command: tunnel --no-autoupdate --url http://newnew-open-webui:8080
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     networks:
       - newnew-net
 
