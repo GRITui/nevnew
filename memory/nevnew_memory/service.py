@@ -16,6 +16,16 @@ Endpoints (bearer auth via MEMORY_API_KEY when set — see env-snippet.txt):
     POST   /users/{user_id}/reset                 drop the user's collections
     GET    /users                                 list known users
 
+    Document RAG (issue #79) — separate Qdrant collections, same isolation
+    model, sharing the memory service's Qdrant connection + local embedder:
+
+    POST   /users/{user_id}/documents             upload a file (multipart:
+                                                    `file`, optional `source`)
+                                                    -> chunk, embed, store
+    GET    /users/{user_id}/documents/search      semantic search (query=...)
+    GET    /users/{user_id}/documents             list ingested sources
+    DELETE /users/{user_id}/documents/{source}    delete one source's chunks
+
 user_id rules: 1-255 chars, no whitespace (mem0 requirement), and it is
 URL-path-safe — ai-core enforces `^[A-Za-z0-9._@:-]{1,255}$` upstream.
 """
@@ -27,11 +37,13 @@ import secrets
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
 from .config import MemorySettings
+from .documents import DocumentBackendError, DocumentStore, DocumentValidationError
+from .extract import ExtractionError, extract_text
 from .store import MemoryBackendError, MemoryNotFound, MemoryStore, MemoryValidationError
 
 logging.basicConfig(
@@ -62,6 +74,17 @@ async def _lifespan(app: FastAPI):
         await store.initialize()
     except Exception:  # noqa: BLE001 — start anyway, /ready reports the failure
         logger.exception("MemoryStore warm-up failed — starting degraded; check /ready.")
+
+    # Document RAG (issue #79): shares the QdrantClient + local embedder
+    # MemoryStore just warmed up above — never a second model load.
+    doc_store = DocumentStore(
+        qdrant=store.qdrant_client,
+        embedder=store.shared_embedder,
+        embedder_dims=SETTINGS.embedder_dims,
+        collection_prefix=SETTINGS.doc_collection_prefix,
+    )
+    app.state.doc_store = doc_store
+
     yield
     await store.close()
 
@@ -79,6 +102,13 @@ def _store(request: Request) -> MemoryStore:
     if store is None:  # defensive; lifespan always sets it before serving
         raise HTTPException(status_code=503, detail="memory store not initialized")
     return store
+
+
+def _doc_store(request: Request) -> DocumentStore:
+    doc_store = getattr(request.app.state, "doc_store", None)
+    if doc_store is None:  # defensive; lifespan always sets it before serving
+        raise HTTPException(status_code=503, detail="document store not initialized")
+    return doc_store
 
 
 def _require_api_key(authorization: Optional[str] = Header(default=None)) -> None:
@@ -106,7 +136,9 @@ def _error_status(exc: Exception) -> int:
         return 404
     if isinstance(exc, MemoryValidationError):
         return 400
-    return 503  # MemoryBackendError and anything unexpected
+    if isinstance(exc, (DocumentValidationError, ExtractionError)):
+        return 400
+    return 503  # MemoryBackendError, DocumentBackendError and anything unexpected
 class AddMemoriesRequest(BaseModel):
     """Provide exactly one of `text` (plain string) or `messages`."""
 
@@ -316,5 +348,105 @@ async def list_users(request: Request) -> Dict[str, Any]:
     except (MemoryNotFound, MemoryValidationError, MemoryBackendError) as exc:
         raise HTTPException(status_code=_error_status(exc), detail=str(exc)) from exc
     return {"users": users, "count": len(users)}
+
+
+# ---------------------------------------------------------------------------
+# Document RAG (issue #79): per-user document chunks, isolated the same way
+# as memories but stored in separate Qdrant collections (see documents.py).
+# ---------------------------------------------------------------------------
+
+_DOC_ERRORS = (DocumentValidationError, DocumentBackendError, ExtractionError)
+
+
+@app.post(
+    "/users/{user_id}/documents",
+    status_code=200,
+    tags=["documents"],
+    dependencies=[Depends(_require_api_key)],
+)
+async def ingest_document(
+    user_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    source: Optional[str] = Form(default=None),
+) -> Dict[str, Any]:
+    """Upload a file (PDF/TXT/MD) — extracted, chunked, embedded, stored.
+
+    `source` defaults to the uploaded filename; re-uploading the same
+    `source` overwrites that source's chunks (see documents.py).
+    """
+    uid = _user_id(user_id)
+    doc_store = _doc_store(request)
+
+    raw = await file.read()
+    if len(raw) > SETTINGS.doc_max_upload_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"file exceeds the {SETTINGS.doc_max_upload_bytes}-byte upload limit",
+        )
+    if not raw:
+        raise HTTPException(status_code=400, detail="uploaded file is empty")
+
+    effective_source = (source or file.filename or "upload").strip() or "upload"
+    try:
+        text = extract_text(raw, filename=file.filename, content_type=file.content_type)
+    except ExtractionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        result = await doc_store.ingest(uid, effective_source, text)
+    except _DOC_ERRORS as exc:
+        raise HTTPException(status_code=_error_status(exc), detail=str(exc)) from exc
+    return {"user_id": uid, **result}
+
+
+@app.get(
+    "/users/{user_id}/documents/search",
+    tags=["documents"],
+    dependencies=[Depends(_require_api_key)],
+)
+async def search_documents(
+    request: Request,
+    user_id: str,
+    query: str = Query(min_length=1, max_length=2000),
+    limit: int = Query(default=SETTINGS.doc_search_top_k, ge=1, le=50),
+) -> Dict[str, Any]:
+    uid = _user_id(user_id)
+    doc_store = _doc_store(request)
+    try:
+        results = await doc_store.search(uid, query, limit=limit)
+    except _DOC_ERRORS as exc:
+        raise HTTPException(status_code=_error_status(exc), detail=str(exc)) from exc
+    return {"user_id": uid, "query": query, "results": results, "count": len(results)}
+
+
+@app.get(
+    "/users/{user_id}/documents",
+    tags=["documents"],
+    dependencies=[Depends(_require_api_key)],
+)
+async def list_documents(user_id: str, request: Request) -> Dict[str, Any]:
+    uid = _user_id(user_id)
+    doc_store = _doc_store(request)
+    try:
+        sources = await doc_store.list_sources(uid)
+    except _DOC_ERRORS as exc:
+        raise HTTPException(status_code=_error_status(exc), detail=str(exc)) from exc
+    return {"user_id": uid, "sources": sources, "count": len(sources)}
+
+
+@app.delete(
+    "/users/{user_id}/documents/{source}",
+    tags=["documents"],
+    dependencies=[Depends(_require_api_key)],
+)
+async def delete_document(user_id: str, source: str, request: Request) -> Dict[str, Any]:
+    uid = _user_id(user_id)
+    doc_store = _doc_store(request)
+    try:
+        deleted = await doc_store.delete_source(uid, source)
+    except _DOC_ERRORS as exc:
+        raise HTTPException(status_code=_error_status(exc), detail=str(exc)) from exc
+    return {"status": "deleted", "user_id": uid, "source": source, "deleted_chunks": deleted}
 
 

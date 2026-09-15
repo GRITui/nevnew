@@ -50,7 +50,13 @@ _history: dict[int, list[dict[str, str]]] = {}
 
 TROUBLE_REPLY = "⚠️ Having some technical trouble reaching NevNew right now — try again in a bit."
 VISION_TROUBLE_REPLY = "⚠️ Couldn't read that image right now — try again in a bit."
+DOCUMENT_TROUBLE_REPLY = "⚠️ Couldn't process that document right now — try again in a bit."
 MAX_TELEGRAM_MESSAGE_LENGTH = 4000
+
+# Document RAG (issue #79) — Telegram file uploads go to ai-core's document
+# proxy, then a synthetic chat turn nudges the model to use search_documents
+# so a bare upload with no caption still gets acknowledged/summarized.
+DOCUMENT_UPLOAD_TIMEOUT_SECONDS = 60
 
 # Image path bypasses the cline/claude agent CLIs entirely (see module
 # docstring) — neither has a non-tool-call way to ingest an arbitrary image
@@ -720,6 +726,76 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(reply_text)
 
 
+async def _upload_document(user_id: str, filename: str, content_type: str | None, raw: bytes) -> bool:
+    """POST a file to ai-core's document ingest proxy (issue #79).
+
+    Returns True on success. Never raises — caller replies with a trouble
+    message on failure.
+    """
+    try:
+        headers = {"Authorization": f"Bearer {AICORE_API_KEY}"} if AICORE_API_KEY else {}
+        files = {"file": (filename, raw, content_type or "application/octet-stream")}
+        data = {"source": filename}
+        async with httpx.AsyncClient(timeout=DOCUMENT_UPLOAD_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"{AICORE_BASE_URL}/memory/users/{user_id}/documents",
+                data=data,
+                files=files,
+                headers=headers,
+            )
+            response.raise_for_status()
+            return True
+    except Exception as exc:  # noqa: BLE001 — helper must never raise
+        logger.warning("Document upload to ai-core failed: %s", exc)
+        return False
+
+
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Ingest a PDF/text document sent on Telegram into the document RAG
+    store (issue #79), then let the model react (e.g. "summarize that
+    invoice") via the search_documents tool."""
+    user = update.effective_user
+    if user is None or update.message is None or update.message.document is None:
+        return
+
+    if user.id != OWNER_ID:
+        logger.warning("Ignored document from non-owner user_id=%s", user.id)
+        return
+
+    tg_document = update.message.document
+    filename = tg_document.file_name or f"document-{tg_document.file_unique_id}"
+    caption = update.message.caption
+
+    tg_file = await tg_document.get_file()
+    raw = bytes(await tg_file.download_as_bytearray())
+
+    user_id = f"telegram:{user.id}"
+    ok = await _upload_document(user_id, filename, tg_document.mime_type, raw)
+    if not ok:
+        await update.message.reply_text(DOCUMENT_TROUBLE_REPLY)
+        return
+
+    history = _history.setdefault(user.id, [])
+    prompt = f"[uploaded a document: {filename}]"
+    if caption:
+        prompt += f" {caption}"
+    else:
+        prompt += " Acknowledge you received it and briefly summarize it using search_documents."
+    history.append({"role": "user", "content": prompt})
+    history[:] = history[-MAX_HISTORY_MESSAGES:]
+
+    reply_text = await _run_aicore(history, user_id)
+    if reply_text is None:
+        logger.error("ai-core reply failed after document upload for user_id=%s", user.id)
+        history.pop()
+        await update.message.reply_text(f"Got it — saved “{filename}”, but couldn't generate a reply right now.")
+        return
+
+    history.append({"role": "assistant", "content": reply_text})
+    history[:] = history[-MAX_HISTORY_MESSAGES:]
+    await update.message.reply_text(reply_text)
+
+
 def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -727,6 +803,7 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE & ~filters.COMMAND, handle_voice))
     app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_photo))
+    app.add_handler(MessageHandler(filters.Document.ALL & ~filters.COMMAND, handle_document))
     logger.info("NevNew Telegram bot starting (owner_id=%s, primary=cline/%s via %s)", OWNER_ID, CLINE_MODEL, CLINE_PROVIDER)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

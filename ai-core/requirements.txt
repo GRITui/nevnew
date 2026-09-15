@@ -10,3 +10,5 @@ tzdata>=2024.1
 # Keyless DuckDuckGo backend for the web_search tool (default provider when
 # no TAVILY_API_KEY / BRAVE_API_KEY is set).
 ddgs>=9.0,<10
+# FastAPI UploadFile/Form parsing for the document upload proxy (issue #79).
+python-multipart>=0.0.9,<1.0

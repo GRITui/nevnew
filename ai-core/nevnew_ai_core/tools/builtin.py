@@ -97,10 +97,67 @@ class SearchUserMemoriesTool(Tool):
         return "\n".join(lines) if lines else "No matching memories found."
 
 
+class SearchDocumentsTool(Tool):
+    name = "search_documents"
+    description = (
+        "Search this user's uploaded documents (PDFs and text files sent on "
+        "Telegram or dropped in the watched folder) for relevant passages. "
+        "Use it to answer questions about, or summarize, a specific document "
+        "the user sent — e.g. 'summarize that invoice'. Returns cited chunks "
+        "with their source filename."
+    )
+    parameters: Dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "What to look up in the user's documents (e.g. 'invoice total', 'contract termination clause').",
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20,
+                "description": "Maximum number of chunks to return (default 5).",
+            },
+        },
+        "required": ["query"],
+        "additionalProperties": False,
+    }
+    source = "builtin"
+
+    async def execute(self, arguments: Dict[str, Any], context: ToolContext) -> str:
+        query = str(arguments.get("query", "")).strip()
+        if not query:
+            raise ValueError("query must be a non-empty string")
+        try:
+            limit = int(arguments.get("limit", 5))
+        except (TypeError, ValueError):
+            limit = 5
+        limit = max(1, min(limit, 20))
+
+        client: MemoryServiceClient = context.memory_client
+        hits = await client.search_documents(context.user_id, query, limit)
+        if not hits:
+            return "No matching document chunks found."
+        lines = []
+        for hit in hits:
+            text = str(hit.get("text", "")).strip()
+            source = str(hit.get("source", "")).strip() or "unknown source"
+            score = hit.get("score")
+            if not text:
+                continue
+            if isinstance(score, (int, float)):
+                lines.append(f"- [{source}] {text} (relevance {float(score):.2f})")
+            else:
+                lines.append(f"- [{source}] {text}")
+        return "\n".join(lines) if lines else "No matching document chunks found."
+
+
 def builtin_tools(settings: Settings) -> List[Tool]:
     return [
         GetCurrentDatetimeTool(),
         SearchUserMemoriesTool(),
+        SearchDocumentsTool(),
         WebSearchTool(
             provider=settings.web_search_provider,
             timeout_seconds=settings.web_search_timeout_seconds,
