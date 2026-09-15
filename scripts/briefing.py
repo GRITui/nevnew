@@ -30,8 +30,9 @@ from zoneinfo import ZoneInfo
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BKK = ZoneInfo("Asia/Bangkok")
-# Bangkok coordinates (owner home). Open-Meteo is keyless.
-LAT, LON = 13.7563, 100.5018
+# Default home coordinates (Bangkok). Override via NEVNEW_HOME_LAT/
+# NEVNEW_HOME_LON in .env — Open-Meteo itself is keyless.
+DEFAULT_LAT, DEFAULT_LON = "13.7563", "100.5018"
 AICORE_URL = "http://localhost:8010"
 STATE_PATH = os.path.join(REPO, "scripts", ".briefing_state.json")
 QUIET_START, QUIET_END = 23, 7
@@ -39,7 +40,13 @@ QUIET_START, QUIET_END = 23, 7
 
 def load_env() -> dict:
     vals: dict = {}
-    for name in ("AICORE_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_OWNER_ID"):
+    for name in (
+        "AICORE_API_KEY",
+        "TELEGRAM_BOT_TOKEN",
+        "TELEGRAM_OWNER_ID",
+        "NEVNEW_HOME_LAT",
+        "NEVNEW_HOME_LON",
+    ):
         vals[name] = os.environ.get(name, "")
     env_path = os.path.join(REPO, ".env")
     if os.path.exists(env_path):
@@ -98,8 +105,10 @@ def aicore_chat(api_key: str, prompt: str, timeout: int) -> str:
 
 
 def fetch_weather() -> str:
+    lat = ENV.get("NEVNEW_HOME_LAT") or DEFAULT_LAT
+    lon = ENV.get("NEVNEW_HOME_LON") or DEFAULT_LON
     url = (
-        "https://api.open-meteo.com/v1/forecast?latitude=13.7563&longitude=100.5018"
+        f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
         "&current=temperature_2m,weather_code&daily=temperature_2m_max,"
         "temperature_2m_min,precipitation_probability_max&timezone=Asia%2FBangkok"
     )
@@ -107,7 +116,7 @@ def fetch_weather() -> str:
         d = json.load(resp)
     cur, daily = d["current"], d["daily"]
     return (
-        f"Bangkok now {cur['temperature_2m']}C (code {cur['weather_code']}), "
+        f"Home now {cur['temperature_2m']}C (code {cur['weather_code']}), "
         f"today {daily['temperature_2m_min'][0]}-{daily['temperature_2m_max'][0]}C, "
         f"rain chance {daily['precipitation_probability_max'][0]}%"
     )
@@ -170,7 +179,7 @@ def do_nudge(dry_run: bool) -> None:
             tg_send(
                 ENV["TELEGRAM_BOT_TOKEN"],
                 ENV["TELEGRAM_OWNER_ID"],
-                f"⏰ In ~{mins} min: {ev.get('title', '(untitled)')}",
+                f"In ~{mins} min: {ev.get('title', '(untitled)')}",
                 dry_run,
             )
             sent += 1
