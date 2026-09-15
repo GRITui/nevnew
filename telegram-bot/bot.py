@@ -116,6 +116,7 @@ TTS_MAX_CHARS = 500
 
 VOICE_TROUBLE_REPLY = "⚠️ Couldn't hear that voice note — try again or send text."
 TTS_FALLBACK_PREFIX = "🔊 Voice reply failed — here it is in text:\n\n"
+FFMPEG_TIMEOUT_SECONDS = 30
 
 os.makedirs(CLINE_SCRATCH_CWD, exist_ok=True)
 os.makedirs(CLAUDE_SONNET_SCRATCH_CWD, exist_ok=True)
@@ -484,22 +485,88 @@ async def _answer_text(
     return reply_text
 
 
+async def _run_ffmpeg(input_bytes: bytes, input_format: str, output_args: list[str]) -> bytes | None:
+    """Pipe `input_bytes` through ffmpeg, return the converted bytes.
+
+    Shared by the OGG/Opus <-> Whisper/gTTS conversions (#61). Runs fully
+    in-memory via stdin/stdout pipes — nothing touches disk. Returns None
+    on any failure (missing binary, bad input, timeout); callers decide
+    whether to fall back to the unconverted bytes or fail the step.
+    """
+    cmd = [
+        "ffmpeg",
+        "-hide_banner", "-loglevel", "error",
+        "-f", input_format, "-i", "pipe:0",
+        *output_args,
+        "pipe:1",
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=input_bytes),
+            timeout=FFMPEG_TIMEOUT_SECONDS,
+        )
+    except (asyncio.TimeoutError, OSError) as exc:
+        logger.warning("ffmpeg conversion failed to run: %s", exc)
+        return None
+
+    if proc.returncode != 0 or not stdout:
+        logger.warning(
+            "ffmpeg conversion exited %s: %s", proc.returncode, stderr.decode(errors="replace")[-500:]
+        )
+        return None
+    return stdout
+
+
+async def _ogg_to_wav(ogg_bytes: bytes) -> bytes | None:
+    """Convert a Telegram OGG/Opus voice note to 16kHz mono WAV for Whisper."""
+    return await _run_ffmpeg(
+        ogg_bytes, "ogg",
+        ["-ar", "16000", "-ac", "1", "-f", "wav"],
+    )
+
+
+async def _mp3_to_ogg_opus(mp3_bytes: bytes) -> bytes | None:
+    """Convert gTTS MP3 output to OGG/Opus, Telegram's native voice-note codec."""
+    return await _run_ffmpeg(
+        mp3_bytes, "mp3",
+        ["-c:a", "libopus", "-b:a", "32k", "-f", "ogg"],
+    )
+
+
 async def _run_stt(ogg_bytes: bytes) -> str | None:
     """Transcribe a Telegram voice note via Groq Whisper (#61).
 
-    Returns the transcript text, or None on any failure (logs, never
-    raises). OpenAI-compatible multipart endpoint.
+    Converts the incoming OGG/Opus voice note to 16kHz mono WAV via ffmpeg
+    first (Whisper-friendly format per issue #61's acceptance criteria); if
+    that conversion fails, falls back to sending the original OGG bytes
+    (Groq's Whisper endpoint accepts ogg too) rather than failing the whole
+    step outright. Returns the transcript text, or None on any failure
+    (logs, never raises). OpenAI-compatible multipart endpoint.
     """
     if not GROQ_API_KEY:
         logger.error("GROQ_API_KEY not set — cannot run STT")
         return None
+
+    wav_bytes = await _ogg_to_wav(ogg_bytes)
+    if wav_bytes is not None:
+        filename, content_type, payload = "voice.wav", "audio/wav", wav_bytes
+    else:
+        logger.warning("ogg->wav conversion failed — sending original OGG to Whisper")
+        filename, content_type, payload = "voice.ogg", "audio/ogg", ogg_bytes
+
     try:
         async with httpx.AsyncClient(timeout=STT_TIMEOUT_SECONDS) as client:
             resp = await client.post(
                 GROQ_STT_URL,
                 headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
                 data={"model": GROQ_STT_MODEL, "response_format": "json"},
-                files={"file": ("voice.ogg", ogg_bytes, "audio/ogg")},
+                files={"file": (filename, payload, content_type)},
             )
             resp.raise_for_status()
             text = resp.json().get("text", "")
@@ -594,16 +661,30 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     history.append({"role": "assistant", "content": reply_text})
     history[:] = history[-MAX_HISTORY_MESSAGES:]
 
-    audio = await _run_tts(reply_text)
-    if audio is None:
+    mp3_audio = await _run_tts(reply_text)
+    if mp3_audio is None:
         await update.message.reply_text(TTS_FALLBACK_PREFIX + reply_text)
         return
 
+    caption = reply_text[:1024] if len(reply_text) > 1024 else reply_text
+    ogg_audio = await _mp3_to_ogg_opus(mp3_audio)
+    if ogg_audio is not None:
+        # Native Telegram voice bubble (OGG/Opus), per issue #61.
+        await context.bot.send_voice(
+            chat_id=update.effective_chat.id,
+            voice=ogg_audio,
+            caption=caption,
+        )
+        return
+
+    # ffmpeg conversion failed — still deliver the spoken reply, just as a
+    # regular audio attachment (MP3) instead of a native voice bubble.
+    logger.warning("mp3->ogg conversion failed — sending MP3 audio instead of a voice bubble")
     await context.bot.send_audio(
         chat_id=update.effective_chat.id,
-        audio=audio,
+        audio=mp3_audio,
         title="NevNew voice reply",
-        caption=reply_text[:1024] if len(reply_text) > 1024 else reply_text,
+        caption=caption,
     )
 
 

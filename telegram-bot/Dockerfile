@@ -8,8 +8,13 @@ WORKDIR /app
 #   the Cline session this bot mirrors) — primary.
 # - @anthropic-ai/claude-code (Sonnet, via CLAUDE_CODE_OAUTH_TOKEN) — fallback.
 # Pinned versions, matching how open-webui/config.yaml pin theirs — see BACKLOG.md.
+#
+# ffmpeg (kept in the final image, not purged like curl/gnupg) is required
+# for the voice loop (#61): converts incoming Telegram OGG/Opus voice notes
+# to WAV for Groq Whisper, and gTTS's MP3 output back to OGG/Opus for the
+# native Telegram voice-bubble reply — see bot.py's _run_ffmpeg().
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg ffmpeg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g cline@3.0.61 @anthropic-ai/claude-code@2.1.263 \
