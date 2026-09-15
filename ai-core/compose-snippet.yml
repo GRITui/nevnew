@@ -39,8 +39,9 @@ services:
       - ./callbacks/nevnew_persona_prompt.py:/app/nevnew_persona_prompt.py:ro
     ports:
       # Host access for curl/debugging; in-network callers use
-      # http://ai-core:8000.
-      - "8010:8000"
+      # http://ai-core:8000. Localhost-only per #73 LAN hardening
+      # (matches docker-compose.yml).
+      - "127.0.0.1:8010:8000"
     depends_on:
       litellm:
         condition: service_healthy
