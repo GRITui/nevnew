@@ -76,6 +76,13 @@ class Settings:
     web_search_max_results: int
     web_search_timeout_seconds: float
 
+    research_max_sources: int
+    research_fetch_timeout_seconds: float
+    research_fetch_max_chars: int
+    research_offload_class: str
+    research_offload_via: str
+    research_offload_timeout_seconds: float
+
     timezone: str
 
     @classmethod
@@ -137,6 +144,30 @@ class Settings:
         if not 5 <= web_search_timeout_seconds <= 120:
             raise RuntimeError("AICORE_WEB_SEARCH_TIMEOUT_SECONDS must be within 5-120")
 
+        research_max_sources = _env_int("AICORE_RESEARCH_MAX_SOURCES", 5)
+        if not 1 <= research_max_sources <= 10:
+            raise RuntimeError("AICORE_RESEARCH_MAX_SOURCES must be within 1-10")
+
+        research_fetch_timeout_seconds = _env_float("AICORE_RESEARCH_FETCH_TIMEOUT_SECONDS", 20.0)
+        if not 5 <= research_fetch_timeout_seconds <= 60:
+            raise RuntimeError("AICORE_RESEARCH_FETCH_TIMEOUT_SECONDS must be within 5-60")
+
+        research_fetch_max_chars = _env_int("AICORE_RESEARCH_FETCH_MAX_CHARS", 6000)
+        if research_fetch_max_chars < 500:
+            raise RuntimeError("AICORE_RESEARCH_FETCH_MAX_CHARS must be >= 500")
+
+        # Mirrors scripts/offload.sh's -c / --via flags (see that script's
+        # header comment for the full tiering table and route contract).
+        research_offload_class = (_env_str("AICORE_RESEARCH_OFFLOAD_CLASS", "complex") or "complex").strip().lower()
+        if research_offload_class not in ("small", "code", "complex"):
+            raise RuntimeError("AICORE_RESEARCH_OFFLOAD_CLASS must be one of small, code, complex")
+
+        research_offload_via = (_env_str("OFFLOAD_VIA", "opencode-go") or "opencode-go").strip().lower()
+
+        research_offload_timeout_seconds = _env_float("AICORE_RESEARCH_OFFLOAD_TIMEOUT_SECONDS", 240.0)
+        if not 30 <= research_offload_timeout_seconds <= 600:
+            raise RuntimeError("AICORE_RESEARCH_OFFLOAD_TIMEOUT_SECONDS must be within 30-600")
+
         timezone = _env_str("AICORE_TIMEZONE", "Asia/Bangkok")
         try:
             ZoneInfo(timezone)
@@ -169,5 +200,11 @@ class Settings:
             web_search_provider=web_search_provider,
             web_search_max_results=web_search_max_results,
             web_search_timeout_seconds=web_search_timeout_seconds,
+            research_max_sources=research_max_sources,
+            research_fetch_timeout_seconds=research_fetch_timeout_seconds,
+            research_fetch_max_chars=research_fetch_max_chars,
+            research_offload_class=research_offload_class,
+            research_offload_via=research_offload_via,
+            research_offload_timeout_seconds=research_offload_timeout_seconds,
             timezone=timezone,
         )
